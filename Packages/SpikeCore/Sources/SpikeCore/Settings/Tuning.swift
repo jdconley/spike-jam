@@ -128,12 +128,19 @@ extension Tuning {
     public static let confusionChance: Float = 0.12
 }
 
-// MARK: - Catch-up bounds (spec §4.9; Claude's starting numbers).
+// MARK: - Catch-up bounds (spec §4.9). The plan started at ±0.07 and
+// ×(1 ± 0.35); ±0.1 and ×(1 ± 0.45) narrow a simulated 0.7 human's margin
+// over the win-by-2 minimum by a third (spikesim --human 0.7).
 extension Tuning {
+    /// A human's timing grade that plays exactly at the athlete's trait (a
+    /// consistent GOOD), and how far each point of timing above or below it
+    /// moves the touch. Plan 4 tunes these against real input.
+    public static let timingPar: Float = 0.6
+    public static let timingWeight: Float = 0.8
     /// At catch-up level ±1, an AI touch's quality moves by ±this…
-    public static let catchUpQuality: Float = 0.07
+    public static let catchUpQuality: Float = 0.1
     /// …and its error chance is × (1 ∓ this).
-    public static let catchUpError: Float = 0.35
+    public static let catchUpError: Float = 0.45
 }
 
 // MARK: - Blocking (Claude's numbers).

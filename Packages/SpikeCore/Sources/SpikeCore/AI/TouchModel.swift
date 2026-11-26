@@ -81,14 +81,19 @@ public struct TouchResult: Equatable, Sendable {
 /// trait, shifted by the difficulty and the catch-up, spread by about 0.15
 /// and clipped to 0...1. The chance of an error comes from the trait and the
 /// difficulty, and rises with a harder or worse ball, less time to get there
-/// and more blockers. A human's touch is drawn around their timing instead,
-/// and neither the difficulty nor the catch-up ever touches it.
+/// and more blockers. A human's touch is drawn around the athlete's trait
+/// moved by their timing (`Tuning.timingWeight` per point above or below
+/// `Tuning.timingPar`), and neither the difficulty nor the catch-up ever
+/// touches it.
 public enum TouchModel {
     public static func resolve(_ c: TouchContext, rng: inout SeededRNG, settings: MatchSettings) -> TouchResult {
         let game = settings.gameType
         let skill: Float, errorScale: Float
         if let timing = c.timing {
-            skill = timing
+            // The athlete's trait still matters (a human passing as the
+            // libero passes better than as a middle); timing above par plays
+            // above it, below par below it.
+            skill = trait(c.toucher.traits, c.kind) + Tuning.timingWeight * (timing - Tuning.timingPar)
             errorScale = 1
         } else {
             let level = settings.difficulty(for: c.toucher.id.team)

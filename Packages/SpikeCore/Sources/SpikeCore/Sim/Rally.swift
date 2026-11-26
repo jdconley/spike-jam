@@ -86,16 +86,29 @@ enum Rally {
     /// Rolls `id`'s touch with a human's `timing`, or the AI's when nil.
     static func roll(_ kind: TouchKind, _ id: AthleteID, _ s: inout GameState, timing: Float?,
                      quality: Float, power: Float, slack: Double, blockers: Int) -> TouchResult {
-        let level: Float = timing == nil ? nudge(s, id.team) : 0
-        let c = TouchContext(kind: kind, toucher: s.rosters[id.team.rawValue][id], incomingQuality: quality,
-                             incomingPower: power, reachSlack: slack, blockersAligned: blockers, catchUp: level,
-                             timing: timing)
+        let c = context(kind, id, s, timing: timing, quality: quality, power: power, slack: slack, blockers: blockers)
         return TouchModel.resolve(c, rng: &s.rng, settings: s.settings)
+    }
+
+    /// The touch model's view of `id`'s touch, asking `src` whether a human
+    /// makes it.
+    static func context(_ kind: TouchKind, _ id: AthleteID, _ s: inout GameState, _ src: (any TouchSource)?,
+                        quality: Float, power: Float, slack: Double, blockers: Int) -> TouchContext {
+        let timing = humanTiming(kind, id, &s, src)
+        return context(kind, id, s, timing: timing, quality: quality, power: power, slack: slack, blockers: blockers)
+    }
+
+    /// The catch-up nudges a bot's touch and never a human's.
+    static func context(_ kind: TouchKind, _ id: AthleteID, _ s: GameState, timing: Float?,
+                        quality: Float, power: Float, slack: Double, blockers: Int) -> TouchContext {
+        TouchContext(kind: kind, toucher: s.rosters[id.team.rawValue][id], incomingQuality: quality,
+                     incomingPower: power, reachSlack: slack, blockersAligned: blockers,
+                     catchUp: timing == nil ? nudge(s, id.team) : 0, timing: timing)
     }
 
     /// The catch-up level of `team`'s bots.
     static func nudge(_ s: GameState, _ team: TeamSide) -> Float {
-        0
+        CatchUp.level(s)[team] ?? 0
     }
 
     /// The human's timing for this touch, if a human makes it.
@@ -147,7 +160,10 @@ enum Rally {
         let slack = Double(tick - s.tick - (reachTicks(s, setter, to.xz) ?? 0)) * Tuning.dt
         s.pending = PendingContact(kind: .set, team: team, athlete: setter, tick: tick, quality: q, slack: slack)
         // The other side reads where the set is going.
-        s.notes.reads[team.other.rawValue] = DefenseAI.read(&s, defending: team.other)
+        // A human's team reads for itself in plan 4; until then the AI reads
+        // for it, unnudged.
+        let readNudge = s.settings.humanSides.contains(team.other) ? 0 : nudge(s, team.other)
+        s.notes.reads[team.other.rawValue] = DefenseAI.read(&s, defending: team.other, nudge: readNudge)
     }
 
     /// Where a pass of quality `q` goes: the setter target for a perfect

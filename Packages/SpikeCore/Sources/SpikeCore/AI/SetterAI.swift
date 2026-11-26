@@ -10,10 +10,11 @@ public enum SetterAI {
         public var chance: Float
     }
 
-    /// The setting setter's choice off a pass of `passQuality`.
+    /// The setting setter's choice off a pass of `passQuality`, as a bot:
+    /// the catch-up level of its side applies.
     public static func choose(_ s: inout GameState, team: TeamSide, passQuality: Float) -> (AthleteID, PlayCall) {
         let setter = s.lineups[team.rawValue].settingSetter(isServing: s.isServing(team))
-        return choose(&s, team: team, passQuality: passQuality, setter: setter, nudge: 0)
+        return choose(&s, team: team, passQuality: passQuality, setter: setter, nudge: CatchUp.level(s)[team] ?? 0)
     }
 
     /// `setter`'s choice. A teammate bailing out the setter can't dump and
