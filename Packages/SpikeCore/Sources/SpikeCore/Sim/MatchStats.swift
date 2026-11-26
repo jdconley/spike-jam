@@ -16,6 +16,15 @@ public struct MatchStats: Equatable, Sendable {
     public var unfinished = 0
     /// Sum of winner's points minus loser's points.
     public var marginTotal = 0
+    /// Serves at which a team's line-up, where its players actually stood,
+    /// broke the overlap rule. Must be 0: the AI always lines up legally.
+    public var overlapViolations = 0
+    /// Second balls the setting setter couldn't get to: a teammate set
+    /// instead, or nobody could and it dropped.
+    public var lateSetters = 0
+    /// Serves, attacks and passes that dropped because nobody could get to
+    /// them in time.
+    public var droppedForReach = 0
 
     public init() {}
 
@@ -47,8 +56,18 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
                     case .attackError: stats.attackErrors += 1
                     case .handlingError: stats.handlingErrors += 1
                     }
-                case .liberoIn, .outOfReach, .matchWon: break
+                case .outOfReach(let kind, _):
+                    stats.droppedForReach += 1
+                    if kind == .set { stats.lateSetters += 1 }
+                case .liberoIn, .matchWon: break
                 }
+                if case .touched(.set, let who, _) = e,
+                   who != s.lineups[who.team.rawValue].settingSetter(isServing: s.isServing(who.team)) {
+                    stats.lateSetters += 1
+                }
+            }
+            if s.serveTick == s.tick {
+                for side in TeamSide.allCases where !overlapAtServe(s, side).isEmpty { stats.overlapViolations += 1 }
             }
             if !broken && !checkInvariants(s).isEmpty {
                 broken = true
@@ -63,4 +82,16 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
         }
     }
     return stats
+}
+
+/// The overlap problems of `side`'s line-up where its players stand now.
+public func overlapAtServe(_ s: GameState, _ side: TeamSide) -> [String] {
+    let lineup = s.lineups[side.rawValue]
+    let serving = s.isServing(side)
+    var spots: [Zone: LocalSpot] = [:]
+    for z in Zone.allCases {
+        guard let m = s.motion[lineup.occupant(z, isServing: serving)] else { return ["zone \(z.rawValue) is empty"] }
+        spots[z] = LocalFrame.toLocal(m.pos, team: side)
+    }
+    return Overlap.violations(spots, isServing: serving)
 }

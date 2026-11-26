@@ -113,4 +113,6 @@ extension Tuning {
     public static let reachGrace: Double = 0.1
     /// The best set a teammate bailing out a late setter can make.
     public static let backupSetQuality: Float = 0.4
+    /// How far off the setter target the worst pass lands, along each axis.
+    public static let passScatter: Float = 3.0
 }

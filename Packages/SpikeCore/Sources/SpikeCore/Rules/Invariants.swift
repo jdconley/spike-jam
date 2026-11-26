@@ -40,12 +40,8 @@ public func checkInvariants(_ s: GameState) -> [String] {
             }
         }
         // The overlap rule, where everyone actually stands as the serve is struck.
-        if s.serveTick == s.tick && court.count == 6 && placed == Set(court.values) {
-            var spots: [Zone: LocalSpot] = [:]
-            for (z, id) in court { spots[z] = LocalFrame.toLocal(s.motion[id]!.pos, team: side) }
-            for v in Overlap.violations(spots, isServing: serving) {
-                problems.append("\(name): overlap at the serve: \(v)")
-            }
+        if s.serveTick == s.tick {
+            for v in overlapAtServe(s, side) { problems.append("\(name): overlap at the serve: \(v)") }
         }
         for (z, id) in court where id == lineup.libero && z.isFrontRow {
             problems.append("\(name): libero in front-row zone \(z.rawValue)")

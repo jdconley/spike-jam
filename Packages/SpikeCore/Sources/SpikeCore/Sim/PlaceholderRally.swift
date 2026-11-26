@@ -32,10 +32,50 @@ enum PlaceholderRally {
             launchCrossing(&s, from: from, to: spot.atHeight(0), duration: duration)
             s.pending = landing(&s, winner: team, reason: .ace)
         } else {
-            launchCrossing(&s, from: from, to: spot.atHeight(Tuning.passContactHeight), duration: duration)
-            s.pending = PendingContact(kind: .receive, team: team.other, athlete: nearestDefender(s, team.other, to: spot),
-                                       tick: contactTick(s))
+            incoming(.receive, to: team.other, spot: spot, from: from, duration: duration, dropReason: .ace, &s, &events)
         }
+    }
+
+    /// A serve or attack that stays in, coming down at `spot` on `team`'s
+    /// court. Whoever on `team` can get there soonest plays it; if nobody can
+    /// get there in time, it drops for `dropReason`.
+    static func incoming(_ kind: TouchKind, to team: TeamSide, spot: Vec2, from: Vec3, duration: Double,
+                         dropReason: PointReason, _ s: inout GameState, _ events: inout [GameEvent]) {
+        let clearance = s.settings.gameType.netHeight + Tuning.netClearanceMargin
+        let flight = Flight.makeClearing(from: from, to: spot.atHeight(Tuning.passContactHeight), duration: clamp(duration),
+                                         startTime: s.time, netClearance: clearance)
+        let tick = contactTick(s, flight)
+        let reach = kind == .receive ? Tuning.passReach : Tuning.digReach
+        if let who = quickestToBall(s, team, spot, reach: reach, contactTick: tick) {
+            launch(&s, flight)
+            s.pending = PendingContact(kind: kind, team: team, athlete: who, tick: tick)
+        } else {
+            events.append(.outOfReach(kind, team: team))
+            launchCrossing(&s, from: from, to: spot.atHeight(0), duration: duration)
+            s.pending = landing(&s, winner: team.other, reason: dropReason)
+        }
+    }
+
+    /// The on-court player of `team` who can get within `reach` of `spot`
+    /// soonest, if they make it by `contactTick`. Never the setting setter,
+    /// who saves themselves for the second ball, and never the libero in
+    /// front of the 3 m line.
+    static func quickestToBall(_ s: GameState, _ team: TeamSide, _ spot: Vec2, reach: Float, contactTick: Int) -> AthleteID? {
+        let lineup = s.lineups[team.rawValue]
+        let serving = s.isServing(team)
+        let setter = lineup.settingSetter(isServing: serving)
+        let target = LocalFrame.toLocal(spot, team: team)
+        var best: (AthleteID, Int)?
+        for z in Zone.allCases {
+            let id = lineup.occupant(z, isServing: serving)
+            guard id != setter, let m = s.motion[id] else { continue }
+            let point = Choreographer.reach(LocalFrame.toLocal(m.pos, team: team), target, reach)
+            if id == lineup.libero && point.d < Choreographer.liberoMinDepth { continue }
+            guard let eta = reachTicks(s, id, LocalFrame.toWorld(point, team: team)) else { continue }
+            if best == nil || eta < best!.1 { best = (id, eta) }
+        }
+        guard let (id, eta) = best, eta <= contactTick - s.tick + reachGraceTicks else { return nil }
+        return id
     }
 
     // MARK: Touches
@@ -70,7 +110,7 @@ enum PlaceholderRally {
         let q = s.rng.float(in: Tuning.passQuality)
         events.append(.touched(kind, athlete, quality: q))
         let duration = clamp((Tuning.passDurationBase + Tuning.passDurationSpread * Double(1 - q)) * s.settings.tempo.flightScale)
-        let to = Court.setterTarget(team: team)
+        let to = passTarget(&s, team: team, quality: q)
         let flight = Flight.make(from: from, to: to, duration: duration, startTime: s.time)
         guard let setter = whoSets(s, team, passer: athlete, at: to.xz, contactTick: contactTick(s, flight)) else {
             // Nobody can get to the pass in time: it falls to the floor.
@@ -81,6 +121,19 @@ enum PlaceholderRally {
         }
         launch(&s, flight)
         s.pending = PendingContact(kind: .set, team: team, athlete: setter, tick: contactTick(s))
+    }
+
+    /// Where a pass of quality `q` goes: the setter target for a perfect
+    /// pass, up to `passScatter` metres off it for the worst, kept on the
+    /// passing team's court.
+    static func passTarget(_ s: inout GameState, team: TeamSide, quality q: Float) -> Vec3 {
+        let target = Court.setterTarget(team: team)
+        let worst = Tuning.passQuality.lowerBound
+        let miss = Tuning.passScatter * max(0, 1 - q) / (1 - worst)
+        var spot = LocalFrame.toLocal(target.xz, team: team)
+        spot.d = min(max(spot.d + miss * s.rng.float(in: -1...1), 0.4), 7.0)
+        spot.l = min(max(spot.l + miss * s.rng.float(in: -1...1), -4.2), 4.2)
+        return LocalFrame.toWorld(spot, team: team).atHeight(target.y)
     }
 
     /// Who plays the second ball at `point` on `contactTick`: the setting
@@ -162,9 +215,7 @@ enum PlaceholderRally {
         }
         let spot = courtSpot(&s, of: team.other, depth: 0.8...8.7)
         if s.rng.chance(Tuning.digSuccess) {
-            launchCrossing(&s, from: from, to: spot.atHeight(Tuning.passContactHeight), duration: duration)
-            s.pending = PendingContact(kind: .dig, team: team.other, athlete: nearestDefender(s, team.other, to: spot),
-                                       tick: contactTick(s))
+            incoming(.dig, to: team.other, spot: spot, from: from, duration: duration, dropReason: .kill, &s, &events)
         } else {
             launchCrossing(&s, from: from, to: spot.atHeight(0), duration: duration)
             s.pending = landing(&s, winner: team, reason: .kill)
@@ -248,15 +299,5 @@ enum PlaceholderRally {
     /// Beyond the end line of the court `attacking` hits into.
     static func longSpot(_ s: inout GameState, attacking: TeamSide) -> Vec3 {
         Vec3(x: attacking.dir * s.rng.float(in: 9.3...10.5), y: 0, z: s.rng.float(in: -4.2...4.2))
-    }
-
-    /// The on-court player of `team` nearest `spot`, never the setting setter.
-    static func nearestDefender(_ s: GameState, _ team: TeamSide, to spot: Vec2) -> AthleteID {
-        let setter = s.lineups[team.rawValue].settingSetter(isServing: s.isServing(team))
-        let candidates = s.lineups[team.rawValue].onCourt(isServing: s.isServing(team))
-            .sorted { $0.key.rawValue < $1.key.rawValue }
-            .map(\.value)
-            .filter { $0 != setter }
-        return candidates.min { (s.motion[$0]!.pos - spot).length < (s.motion[$1]!.pos - spot).length }!
     }
 }
