@@ -409,6 +409,8 @@ JD's direction is to support kids the way Pounce does (2026-11-26). The pieces a
 
 The order is Claude's proposal. Each milestone ends with JD playing it on device.
 
+**First prototype (JD, 2026-11-26):** before the milestones are finished, a TestFlight build that JD and his son can play on two phones on the same Wi-Fi. That pulls the local two-phone mode from milestone 3 forward, right after the core game is playable. The project is open source (MIT, Conley Chaos LLC) at github.com/jdconley/spike-jam, so CI runs on free GitHub runners like Pounce's.
+
 1. **Core game, solo:**
    - SpikeCore with the new fixed-step sim, all touches, the huddle and play calls, the defensive read, on fire, the camera and the tutorial.
    - Real rotation: six rotations, serve-receive stacks, switching, the 5-1 and 6-2, the libero, and the advanced team settings menu.

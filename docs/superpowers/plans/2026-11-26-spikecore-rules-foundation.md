@@ -12,19 +12,19 @@
 
 ## Where this plan fits
 
-The spec is too big for one plan. Milestone 1 (§6) is split into plans that each end in working, tested software. They run in this order:
+The spec is too big for one plan. The first goal is a **TestFlight prototype that JD and his son can play on two phones on the same Wi-Fi** (JD, 2026-11-26). So the plans run in this order, each ending in working, tested software:
 
 1. **SpikeCore rules foundation** (this plan): state, rules, rotation, scoring, flights and the headless match runner.
 2. **Court movement and formations:** serve-receive stacks for every rotation (legal for the overlap rule), switching, approaches, block footwork, transition, coverage, perimeter defense, and the steering model.
 3. **AI and plays:** player traits, imperfect touches and decisions, the play catalog (§4.8), AI setter choices, blocks and digs, difficulty, and the catch-up (§4.9).
 4. **Input and control in SpikeCore:** timed touches, timing grades, touch ownership, huddle picks, switching, the "ball" pick, the defensive read, and on fire.
-5. **The app, playable on JD's iPhone:** RealityKit rendering of SpikeCore, gestures, the HUD and the camera. This replaces the throwaway spike.
-6. **Huddle and presentation:** the huddle UI with rotation and play diagrams, the switch strip, celebrations and team settings.
-7. **Tutorial.**
-8. **Art and audio pass.**
-9. **SpikeNet loopback:** the client and server loops in one process.
+5. **The app, playable on JD's iPhone:** RealityKit rendering of SpikeCore, gestures, a basic huddle, the HUD and the camera, with a cel-shaded placeholder look. This replaces the throwaway spike.
+6. **Two phones on the same Wi-Fi:** SpikeNet with the host phone running the server loop in-process, the other phone joining through Bonjour, plus prediction, replay and smoothing (spec §5.3 and the local mode in §5.4). **This is the prototype JD and his son test on TestFlight.**
+7. **Huddle and presentation:** the full huddle UI with rotation and play diagrams, the switch strip, celebrations and team settings.
+8. **Art and audio pass** in the American anime direction, once it's agreed.
+9. **Tutorial.**
 
-Milestones 2–4 get their own plans after that.
+Online play through the Oregon server, Apple TV and Mac follow as milestones 2–4.
 
 ## Global Constraints
 
