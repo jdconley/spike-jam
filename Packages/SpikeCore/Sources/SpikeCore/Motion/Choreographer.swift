@@ -8,7 +8,7 @@
 public enum Choreographer {
     public static func update(_ s: inout GameState) {
         switch s.phase {
-        case .preServe, .deadBall:
+        case .preServe, .deadBall, .huddle:
             for side in TeamSide.allCases { toFormation(&s, TeamView(s, side)) }
         case .matchOver:
             for side in TeamSide.allCases {

@@ -2,6 +2,9 @@ public enum Phase: Codable, Equatable, Sendable {
     case preServe(untilTick: Int)
     case rally
     case deadBall(untilTick: Int)
+    /// Between the dead ball and the next serve when humans play: picks and
+    /// calls (spec §4.3). It runs to `untilTick` whatever anyone does.
+    case huddle(untilTick: Int)
     case matchOver
 }
 
@@ -94,6 +97,9 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     /// Each team's read of the other's next hitter (`DefenseAI.read`), by
     /// `TeamSide.rawValue`.
     public var reads: [AthleteID?]
+    /// A human's read for their side this rally, which overrides the AI's;
+    /// the last one wins. By `TeamSide.rawValue`.
+    public var humanReads: [AthleteID?]
     /// What happens to an attack if the block doesn't touch it: the dig or
     /// the ball landing. Set while a block is pending.
     public var afterBlock: PendingContact?
@@ -106,6 +112,7 @@ public struct RallyNotes: Codable, Equatable, Sendable {
         play = nil
         recentHitters = [[], []]
         reads = [nil, nil]
+        humanReads = [nil, nil]
         afterBlock = nil
         block = nil
     }
@@ -196,7 +203,10 @@ public struct GameState: Codable, Equatable, Sendable {
         self.rng = rng
         score = Score(settings: settings)
         tick = 0
-        phase = .preServe(untilTick: Int(Tuning.serveDelay * Double(Tuning.stepsPerSecond)))
+        // With humans the match opens with a huddle (picks, calls and team
+        // settings); bots go straight to the serve.
+        phase = humans.isEmpty ? .preServe(untilTick: Int(Tuning.serveDelay * Double(Tuning.stepsPerSecond)))
+            : .huddle(untilTick: nearestTicks(Tuning.huddleSeconds))
         ball = nil
         pending = nil
         motion = [:]

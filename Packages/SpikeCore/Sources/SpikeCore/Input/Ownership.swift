@@ -57,14 +57,12 @@ public enum Ownership {
             } else {
                 c.id = s.takeContactID()
                 c.owner = owned(c, s)
-                record(c, &s)
             }
             s.pending = c
         }
         if var c = s.notes.afterBlock, c.id == .none {
             c.id = s.takeContactID()
             c.owner = owned(c, s)
-            record(c, &s)
             s.notes.afterBlock = c
         }
         if let c = s.pending, c.kind == .attack, c.id != before, !s.humans.isEmpty {
@@ -77,7 +75,10 @@ public enum Ownership {
             }
         }
         if let w = s.notes.block, s.pending?.id != w.attack && s.pending?.id != w.id { close(&s, &events) }
+        // The side's turn is taken as the window opens: a dig held back for a
+        // block that then touches the ball never was anyone's.
         if let c = s.pending, c.id != before, let owner = c.owner, let kind = c.kind, kind != .block {
+            s.lastToucherHuman[c.team.rawValue] = owner
             events.append(.window(c.id, kind, owner: owner, contactTick: c.tick))
         }
     }
@@ -85,10 +86,6 @@ public enum Ownership {
     static func owned(_ c: PendingContact, _ s: GameState) -> HumanID? {
         guard let kind = c.kind, kind != .block, let athlete = c.athlete else { return nil }
         return owner(for: athlete, kind: kind, s)
-    }
-
-    static func record(_ c: PendingContact, _ s: inout GameState) {
-        if let h = c.owner { s.lastToucherHuman[c.team.rawValue] = h }
     }
 
     /// Ends the human block; a block never jumped is a miss.

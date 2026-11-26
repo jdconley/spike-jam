@@ -54,6 +54,7 @@ enum Rally {
         s.notes.passQuality = 1
         s.notes.play = nil
         s.notes.reads = [nil, nil]
+        s.notes.humanReads = [nil, nil]
         s.notes.afterBlock = nil
         events.append(.served(server))
 
@@ -196,9 +197,8 @@ enum Rally {
         s.notes.passQuality = setter == setting ? q : min(q, Tuning.bailOutPassQuality)
         let slack = Double(tick - s.tick - (reachTicks(s, setter, to.xz) ?? 0)) * Tuning.dt
         s.pending = PendingContact(kind: .set, team: team, athlete: setter, tick: tick, quality: q, slack: slack)
-        // The other side reads where the set is going.
-        // A human's team reads for itself in plan 4; until then the AI reads
-        // for it, unnudged.
+        // The other side reads where the set is going: a human's read if they
+        // made one this rally, else the AI's (unnudged for a human's team).
         let readNudge = s.settings.humanSides.contains(team.other) ? 0 : nudge(s, team.other)
         s.notes.reads[team.other.rawValue] = DefenseAI.read(&s, defending: team.other, nudge: readNudge)
     }

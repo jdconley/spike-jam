@@ -15,6 +15,8 @@ public enum DefenseAI {
     /// `nudge` is the defending side's catch-up level: a side held back
     /// reads a little worse.
     static func read(_ s: inout GameState, defending: TeamSide, nudge: Float) -> AthleteID? {
+        // A human's read for the side overrides the AI's for the rally.
+        if let human = s.notes.humanReads[defending.rawValue] { return human }
         let attacking = defending.other
         guard let c = s.pending, c.kind == .set, c.team == attacking, let setter = c.athlete else { return nil }
         let options = SetterAI.options(s, team: attacking, passQuality: s.notes.passQuality, setter: setter)

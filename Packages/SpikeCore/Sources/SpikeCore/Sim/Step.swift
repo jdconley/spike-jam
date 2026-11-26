@@ -42,6 +42,14 @@ public func step(_ s: inout GameState, inputs: [PlayerInput], touches: (any Touc
         }
     case .deadBall(let until):
         if s.tick >= until {
+            if s.humans.isEmpty {
+                s.phase = .preServe(untilTick: s.tick + ticks(Tuning.serveDelay))
+            } else {
+                Huddle.begin(&s)
+            }
+        }
+    case .huddle(let until):
+        if s.tick >= until {
             s.phase = .preServe(untilTick: s.tick + ticks(Tuning.serveDelay))
         }
     case .matchOver:
@@ -58,8 +66,20 @@ public func step(_ s: inout GameState, inputs: [PlayerInput], touches: (any Touc
 func apply(_ input: PlayerInput, _ s: inout GameState, _ events: inout [GameEvent]) {
     // Never from the future, and only from someone playing.
     guard input.tick < s.tick, let slot = s.human(input.human) else { return }
+    switch input.action {
+    case .read(let hitter):
+        read(hitter, by: slot, &s)
+        return
+    case .switchTo(let p):
+        Huddle.switchTo(p, from: input.human, &s)
+        return
+    case .pick, .call, .combo, .ready, .teamSettings:
+        Huddle.apply(input.action, from: input.human, &s)
+        return
+    default:
+        break
+    }
     guard let id = input.contact else { return }
-    _ = slot
     if let w = s.notes.block, w.id == id {
         guard w.owner == input.human, w.grade == nil else { return }
         switch input.action {
@@ -78,6 +98,18 @@ func apply(_ input: PlayerInput, _ s: inout GameState, _ events: inout [GameEven
         events.append(.window(id, .serve, owner: input.human, contactTick: tick))
     }
     s.inputBuffer.append(input)
+}
+
+/// A human's defensive read (spec §4.3): their side reads `hitter` for the
+/// rest of the rally, over the AI's read; at once if the other side is
+/// already setting.
+func read(_ hitter: AthleteID, by slot: HumanSlot, _ s: inout GameState) {
+    let side = slot.team
+    guard hitter.team == side.other, s.motion[hitter] != nil, s.phase == .rally else { return }
+    s.notes.humanReads[side.rawValue] = hitter
+    if let c = s.pending, c.team == side.other, c.kind == .set || c.kind == .attack {
+        s.notes.reads[side.rawValue] = hitter
+    }
 }
 
 extension GameState {
