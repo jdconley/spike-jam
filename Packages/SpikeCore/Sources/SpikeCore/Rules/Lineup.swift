@@ -38,20 +38,30 @@ public struct Lineup: Codable, Equatable, Sendable {
         (z.rawValue - 1 + rotation) % 6
     }
 
+    /// The zone `id` holds before any libero swap; nil for the libero.
     public func zone(of id: AthleteID) -> Zone? {
         Zone.allCases.first { baseOccupant($0) == id }
     }
 
-    /// The six on court after the libero swap: the libero replaces the
+    /// The zone `id` holds on court after the libero swap, so the libero has
+    /// one and the middle it replaces has none.
+    public func zone(of id: AthleteID, isServing: Bool) -> Zone? {
+        Zone.allCases.first { occupant($0, isServing: isServing) == id }
+    }
+
+    /// Who stands in `z` after the libero swap: the libero replaces the
     /// back-row middle, except the middle in zone 1 while their team serves.
+    public func occupant(_ z: Zone, isServing: Bool) -> AthleteID {
+        if !z.isFrontRow && positions[slot(z)] == .middle && !(isServing && z == .z1) {
+            return libero
+        }
+        return baseOccupant(z)
+    }
+
+    /// The six on court after the libero swap.
     public func onCourt(isServing: Bool) -> [Zone: AthleteID] {
         var court: [Zone: AthleteID] = [:]
-        for z in Zone.allCases {
-            court[z] = baseOccupant(z)
-            if !z.isFrontRow && positions[slot(z)] == .middle && !(isServing && z == .z1) {
-                court[z] = libero
-            }
-        }
+        for z in Zone.allCases { court[z] = occupant(z, isServing: isServing) }
         return court
     }
 
