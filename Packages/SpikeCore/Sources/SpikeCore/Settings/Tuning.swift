@@ -51,3 +51,30 @@ extension Tuning {
     /// Height of a pass or dig contact above the floor.
     public static let passContactHeight: Float = 0.8
 }
+
+// MARK: - Footwork (Claude's starting numbers; the builder tunes them on
+// device). Footwork may run faster than real life so the game stays FAST.
+extension Tuning {
+    /// Multiplies every gait's speed cap.
+    public static let footworkScale: Float = 1.25
+    /// Gait speed caps in m/s, before `footworkScale` and the speed trait.
+    public static func gaitSpeed(_ g: Gait) -> Float {
+        switch g {
+        case .stand: 2.0          // small adjustments while "standing"
+        case .run: 6.0
+        case .shuffle: 3.5
+        case .backpedal: 3.5
+        case .approach: 5.0
+        case .dive: 4.0
+        }
+    }
+    /// m/s², speeding up and slowing down alike.
+    public static let accel: Float = 16
+    /// Within this many metres of the goal a player has arrived.
+    public static let arriveRadius: Float = 0.08
+
+    /// Players stay on their own side and inside the free zone (team-local).
+    public static let minDepth: Float = 0.2
+    public static let maxDepth: Float = 12
+    public static let maxLateral: Float = 7.5
+}
