@@ -38,16 +38,6 @@ extension Tuning {
     /// A shank, a set error or a net ball falling to the floor.
     public static let errorDuration: Double = 0.6
 
-    /// Set durations by the attacker's zone.
-    public static func setDuration(_ z: Zone) -> Double {
-        switch z {
-        case .z4: 0.78
-        case .z3: 0.42
-        case .z2: 0.72
-        default: 0.8          // back-row sets; unused until plan 3
-        }
-    }
-
     /// Height of a pass or dig contact above the floor.
     public static let passContactHeight: Float = 0.8
 }
@@ -113,6 +103,32 @@ extension Tuning {
     public static let reachGrace: Double = 0.1
     /// The best set a teammate bailing out a late setter can make.
     public static let backupSetQuality: Float = 0.4
+    /// The pass a bail-out set counts as, so only high balls are live.
+    public static let bailOutPassQuality: Float = 0.3
     /// How far off the setter target the worst pass lands, along each axis.
     public static let passScatter: Float = 3.0
+}
+
+// MARK: - The AI setter (Claude's starting numbers).
+extension Tuning {
+    /// Score per point of the hitter's attack trait.
+    public static let setterAttackWeight: Float = 2.0
+    /// Score lost per blocker expected at the set.
+    public static let setterBlockerWeight: Float = 0.8
+    /// Extra score for a quick off a perfect pass, scaled down to 0 at a
+    /// just-good-enough one.
+    public static let setterQuickBonus: Float = 0.3
+    /// Score lost for each of the last two sets that went to this hitter.
+    public static let setterRepeatPenalty: Float = 0.3
+    /// Softmax temperature per point of (1.6 − set trait).
+    public static let setterTemperature: Float = 0.35
+    /// Added to the temperature of a side the catch-up holds back, at full
+    /// level: it sets less sharply.
+    public static let catchUpTemperature: Float = 0.3
+    /// How often a bot team's huddle calls a combination.
+    public static let comboChance: Float = 0.12
+    /// Seconds a blocker takes to read the set before moving.
+    public static let blockerReaction: Double = 0.15
+    /// How far a blocker's hands reach to the side, in metres.
+    public static let blockerArmReach: Float = 0.4
 }

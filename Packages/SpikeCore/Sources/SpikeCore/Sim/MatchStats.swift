@@ -25,8 +25,32 @@ public struct MatchStats: Equatable, Sendable {
     /// Serves, attacks and passes that dropped because nobody could get to
     /// them in time.
     public var droppedForReach = 0
+    /// Sets by call, the Dump included.
+    public var setCalls: [PlayCall: Int] = [:]
 
     public init() {}
+
+    /// The totals of two batches together.
+    public func adding(_ o: MatchStats) -> MatchStats {
+        var t = self
+        t.matches += o.matches
+        t.rallies += o.rallies
+        t.touches += o.touches
+        t.sideOuts += o.sideOuts
+        t.aces += o.aces
+        t.serviceErrors += o.serviceErrors
+        t.kills += o.kills
+        t.attackErrors += o.attackErrors
+        t.handlingErrors += o.handlingErrors
+        t.invariantFailures += o.invariantFailures
+        t.unfinished += o.unfinished
+        t.marginTotal += o.marginTotal
+        t.overlapViolations += o.overlapViolations
+        t.lateSetters += o.lateSetters
+        t.droppedForReach += o.droppedForReach
+        t.setCalls.merge(o.setCalls, uniquingKeysWith: +)
+        return t
+    }
 
     public var avgTouchesPerRally: Double { rallies == 0 ? 0 : Double(touches) / Double(rallies) }
     public var sideOutRate: Double { rallies == 0 ? 0 : Double(sideOuts) / Double(rallies) }
@@ -59,6 +83,7 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
                 case .outOfReach(let kind, _):
                     stats.droppedForReach += 1
                     if kind == .set { stats.lateSetters += 1 }
+                case .setCall(_, let call): stats.setCalls[call, default: 0] += 1
                 case .liberoIn, .matchWon: break
                 }
                 if case .touched(.set, let who, _) = e,

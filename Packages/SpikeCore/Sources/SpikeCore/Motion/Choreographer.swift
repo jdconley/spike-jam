@@ -99,7 +99,7 @@ public enum Choreographer {
                 if len > Tuning.passShadeMax { shade = LocalSpot(d: shade.d * Tuning.passShadeMax / len, l: shade.l * Tuning.passShadeMax / len) }
                 go(&s, t, id, LocalSpot(d: spot.d + shade.d, l: spot.l + shade.l), .shuffle)
             } else {
-                go(&s, t, id, BaseSpots.approachStart(t.lane(id)), .run)
+                go(&s, t, id, t.approachStart(id), .run)
             }
         }
     }
@@ -107,21 +107,15 @@ public enum Choreographer {
     // MARK: Offense
 
     /// A pass or dig is in the air toward `c.athlete`, who will set: the
-    /// setter goes to where the ball will be, and the hitters get to their
-    /// approach spots and time their approaches for the set.
+    /// setter goes to where the ball will be, and every hitter with a live
+    /// call (front row and back) gets to that play's approach spot and times
+    /// the approach for its set. Calls the pass took away aren't run.
     static func beforeTheSet(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         let contact = t.local(ballEnd(s).xz)
         if let setter = c.athlete { go(&s, t, setter, contact, .run) }
-        let hitters = t.lineup.attackers(isServing: t.serving).filter { $0 != c.athlete }
-        for h in hitters {
-            let lane = t.lane(h)
-            let attackTick = c.tick + ticks(Tuning.setDuration(lane.zone) * s.settings.tempo.flightScale)
-            let takeoff = BaseSpots.takeoff(lane, setPoint: BaseSpots.defaultSetPoint(lane, team: t.side), team: t.side)
-            approach(&s, t, h, lane, takeoff, attackTick: attackTick)
-        }
-        // Back-row hitters get ready for a pipe or a D; the rest hold.
-        for (z, id) in t.court where !z.isFrontRow && id != c.athlete && id != t.setter && id != t.libero {
-            go(&s, t, id, BaseSpots.approachStart(t.lane(id)), .run)
+        for (h, call) in t.live where h != c.athlete && call != .dump {
+            let attackTick = c.tick + ticks(PlayBook.spec(call).setDuration * s.settings.tempo.flightScale)
+            approach(&s, t, h, PlayBook.approachStart(call), t.takeoff(call, s), attackTick: attackTick)
         }
     }
 
@@ -130,9 +124,9 @@ public enum Choreographer {
     /// else covers the hitter.
     static func attack(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         guard let hitter = c.athlete, let ball = s.ball else { return }
-        let lane = t.lane(hitter)
-        let takeoff = BaseSpots.takeoff(lane, setPoint: ballEnd(s), team: t.side)
-        approach(&s, t, hitter, lane, takeoff, attackTick: c.tick)
+        let play = s.notes.play ?? t.live.first { $0.0 == hitter }?.1 ?? .four
+        let takeoff = BaseSpots.takeoff(PlayBook.spec(play).lane, setPoint: ballEnd(s), team: t.side)
+        approach(&s, t, hitter, PlayBook.approachStart(play), takeoff, attackTick: c.tick)
         // The jump peaks on the contact; a set quicker than half a jump
         // shortens it rather than moving the peak.
         let setTick = Int((ball.startTime * Double(Tuning.stepsPerSecond)).rounded())
@@ -140,11 +134,10 @@ public enum Choreographer {
         s.motion[hitter]!.jump = Jump(startTick: start, durationTicks: 2 * (c.tick - start), height: Tuning.attackJumpHeight)
 
         let setter = s.lastTouch
-        let decoys = t.lineup.attackers(isServing: t.serving).filter { $0 != hitter && $0 != setter }
-        for d in decoys {
-            let dl = t.lane(d)
-            let dt = BaseSpots.takeoff(dl, setPoint: BaseSpots.defaultSetPoint(dl, team: t.side), team: t.side)
-            approach(&s, t, d, dl, dt, attackTick: c.tick)
+        let runs = t.live.filter { $0.0 != hitter && $0.0 != setter && $0.1 != .dump }
+        let decoys = runs.map(\.0)
+        for (d, call) in runs {
+            approach(&s, t, d, PlayBook.approachStart(call), t.takeoff(call, s), attackTick: c.tick)
         }
         // Coverage: an arc behind the takeoff, matched left to right.
         let covering = t.court.map(\.id).filter { $0 != hitter && !decoys.contains($0) }
@@ -163,13 +156,12 @@ public enum Choreographer {
 
     /// A hitter waits on their approach spot, then approaches so they reach
     /// the takeoff with half a jump to go before `attackTick`.
-    static func approach(_ s: inout GameState, _ t: TeamView, _ id: AthleteID, _ lane: AttackLane,
+    static func approach(_ s: inout GameState, _ t: TeamView, _ id: AthleteID, _ start: LocalSpot,
                          _ takeoff: LocalSpot, attackTick: Int) {
         let takeoffTick = attackTick - Tuning.attackJumpTicks / 2
         if Double(takeoffTick - s.tick) * Tuning.dt <= Tuning.approachTime {
             go(&s, t, id, takeoff, .approach, arriveBy: takeoffTick)
         } else {
-            let start = BaseSpots.approachStart(lane)
             go(&s, t, id, start, transitionGait(t.local(s.motion[id]!.pos), start))
         }
     }
@@ -199,7 +191,7 @@ public enum Choreographer {
     static func defend(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         guard let hitter = c.athlete else { return }
         let attacker = TeamView(s, c.team)
-        let lane = attacker.lane(hitter)
+        let lane = s.notes.play.map { PlayBook.spec($0).lane } ?? attacker.lane(hitter)
         let p = BaseSpots.perimeter(against: lane)
         let blockRoles = BaseSpots.blockers(against: lane)
         let block = BaseSpots.blockSpot(against: ballEnd(s), defending: t.side)
@@ -231,7 +223,7 @@ public enum Choreographer {
             } else if id == t.setter {
                 go(&s, t, id, target, .run)
             } else if z.isFrontRow && !airborne(s, id) {
-                let start = BaseSpots.approachStart(t.lane(id))
+                let start = t.approachStart(id)
                 go(&s, t, id, start, transitionGait(t.local(s.motion[id]!.pos), start))
             }
         }
@@ -336,6 +328,9 @@ struct TeamView {
     let serving: Bool
     /// The six on court, by zone.
     let court: [(zone: Zone, id: AthleteID)]
+    /// Who runs which play now: the live calls off the pass this team is
+    /// setting from, or the called plays while the ball is on its way.
+    let live: [(AthleteID, PlayCall)]
 
     init(_ s: GameState, _ side: TeamSide) {
         self.side = side
@@ -344,6 +339,8 @@ struct TeamView {
         serving = s.isServing(side)
         let l = s.lineups[side.rawValue], serves = s.isServing(side)
         court = Zone.allCases.map { ($0, l.occupant($0, isServing: serves)) }
+        let setting = s.pending.map { $0.team == side && ($0.kind == .set || $0.kind == .attack) } ?? false
+        live = liveCalls(s, team: side, passQuality: setting ? s.notes.passQuality : 1)
     }
 
     var libero: AthleteID { lineup.libero }
@@ -354,6 +351,19 @@ struct TeamView {
     /// The lane `id` attacks from by default, from where they are in the rotation.
     func lane(_ id: AthleteID) -> AttackLane {
         BaseSpots.defaultLane(for: roster[id].position, frontRow: zone(id)?.isFrontRow ?? false)
+    }
+
+    /// Where `id` starts an approach: for their live call if they have one,
+    /// else for their default lane.
+    func approachStart(_ id: AthleteID) -> LocalSpot {
+        if let call = live.first(where: { $0.0 == id && $0.1 != .dump })?.1 { return PlayBook.approachStart(call) }
+        return BaseSpots.approachStart(lane(id))
+    }
+
+    /// Where a hitter takes off for `call`'s set.
+    func takeoff(_ call: PlayCall, _ s: GameState) -> LocalSpot {
+        BaseSpots.takeoff(PlayBook.spec(call).lane, setPoint: PlayBook.setPoint(call, team: side, net: s.settings.gameType.netHeight),
+                          team: side)
     }
 
     func world(_ spot: LocalSpot) -> Vec2 { LocalFrame.toWorld(spot, team: side) }

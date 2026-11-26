@@ -6,6 +6,8 @@ enum PlaceholderRally {
 
     static func serve(_ s: inout GameState, _ events: inout [GameEvent]) {
         let team = s.score.serving
+        // Bot teams call their plays; a human's team keeps its calls.
+        for side in TeamSide.allCases where !s.settings.humanSides.contains(side) { SetterAI.huddle(&s, team: side) }
         let lineup = s.lineups[team.rawValue]
         let server = lineup.server()
         // Struck from where the server stands, behind the end line.
@@ -14,6 +16,8 @@ enum PlaceholderRally {
         s.touchesThisSide = 0
         s.serveTick = s.tick
         s.lastTouch = server
+        s.notes.passQuality = 1
+        s.notes.play = nil
         events.append(.served(server))
 
         let duration = Tuning.serveDuration * s.settings.tempo.flightScale * s.settings.gameType.paceScale
@@ -120,6 +124,9 @@ enum PlaceholderRally {
             return
         }
         launch(&s, flight)
+        // A teammate bailing out the setter can only put up a high ball.
+        let setting = s.lineups[team.rawValue].settingSetter(isServing: s.isServing(team))
+        s.notes.passQuality = setter == setting ? q : min(q, Tuning.bailOutPassQuality)
         s.pending = PendingContact(kind: .set, team: team, athlete: setter, tick: contactTick(s))
     }
 
@@ -187,19 +194,33 @@ enum PlaceholderRally {
         // A teammate bailing out a late setter sets a worse ball.
         if setter != lineup.settingSetter(isServing: s.isServing(team)) { q = min(q, Tuning.backupSetQuality) }
         events.append(.touched(.set, setter, quality: q))
-        let hitters = lineup.attackers(isServing: s.isServing(team)).filter { $0 != setter }
-        let hitter = hitters[s.rng.int(in: 0..<hitters.count)]
-        // Hitters switch at the serve, so the set goes to the hitter's own
-        // lane, not the zone they rotated into.
-        let lane = BaseSpots.defaultLane(for: s.rosters[team.rawValue][hitter].position, frontRow: true)
-        let duration = Tuning.setDuration(lane.zone) * s.settings.tempo.flightScale
-        launch(&s, Flight.make(from: from, to: BaseSpots.defaultSetPoint(lane, team: team), duration: clamp(duration), startTime: s.time))
+        let (hitter, call) = SetterAI.choose(&s, team: team, passQuality: s.notes.passQuality, setter: setter, nudge: 0)
+        remember(&s, team: team, hitter: hitter)
+        if call == .dump {
+            attack(setter, team, &s, &events)
+            return
+        }
+        events.append(.setCall(hitter, call))
+        s.notes.play = call
+        let duration = PlayBook.spec(call).setDuration * s.settings.tempo.flightScale
+        let to = PlayBook.setPoint(call, team: team, net: s.settings.gameType.netHeight)
+        launch(&s, Flight.make(from: from, to: to, duration: clamp(duration), startTime: s.time))
         s.pending = PendingContact(kind: .attack, team: team, athlete: hitter, tick: contactTick(s))
+    }
+
+    /// Keeps the team's last two hitters for the setter's repetition penalty.
+    static func remember(_ s: inout GameState, team: TeamSide, hitter: AthleteID) {
+        var recent = s.notes.recentHitters[team.rawValue]
+        recent.append(hitter)
+        if recent.count > 2 { recent.removeFirst(recent.count - 2) }
+        s.notes.recentHitters[team.rawValue] = recent
     }
 
     static func attack(_ hitter: AthleteID, _ team: TeamSide, _ s: inout GameState, _ events: inout [GameEvent]) {
         s.touchesThisSide = 0
         s.lastTouch = hitter
+        s.notes.play = nil
+        s.notes.passQuality = 1
         let from = s.ball!.position(at: s.time)
         let q = s.rng.float(in: Tuning.passQuality)
         events.append(.touched(.attack, hitter, quality: q))

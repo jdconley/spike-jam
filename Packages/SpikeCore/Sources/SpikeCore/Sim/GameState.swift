@@ -45,6 +45,28 @@ public enum GameEvent: Equatable, Sendable {
     /// drops (a serve or attack) or is fumbled (a set).
     case outOfReach(TouchKind, team: TeamSide)
     case matchWon(TeamSide)
+    /// The set is away to `hitter` for `call` (the set labels show it).
+    case setCall(AthleteID, PlayCall)
+}
+
+/// What the rally remembers between touches that the AI and the
+/// choreographer read. Reset at each serve.
+public struct RallyNotes: Codable, Equatable, Sendable {
+    /// The quality of the pass or dig the team in possession is setting
+    /// from, which decides its live calls. 1 while the ball is on its way
+    /// to them, so hitters head for their called plays.
+    public var passQuality: Float
+    /// The call of the set in the air, if any.
+    public var play: PlayCall?
+    /// Each team's last two hitters, oldest first. Indexed by
+    /// `TeamSide.rawValue`.
+    public var recentHitters: [[AthleteID]]
+
+    public init() {
+        passQuality = 1
+        play = nil
+        recentHitters = [[], []]
+    }
 }
 
 /// Empty until plan 4, so `step`'s signature is stable.
@@ -77,6 +99,9 @@ public struct GameState: Codable, Equatable, Sendable {
     /// net clearance; it costs one Bool, so it is kept in every build so the
     /// state's shape never differs between debug and release.
     public var lastFlightWasNetError: Bool
+    /// Each team's play calls, indexed by `TeamSide.rawValue`.
+    public var calls: [TeamCalls]
+    public var notes: RallyNotes
 
     public init(settings: MatchSettings) {
         self.settings = settings
@@ -100,6 +125,11 @@ public struct GameState: Codable, Equatable, Sendable {
         touchesThisSide = 0
         rallyCount = 0
         lastFlightWasNetError = false
+        let lineups = self.lineups
+        calls = TeamSide.allCases.map { side in
+            TeamCalls.defaults(lineup: lineups[side.rawValue], roster: rosters[side.rawValue], game: settings.gameType)
+        }
+        notes = RallyNotes()
         _ = refreshPositions()
     }
 
@@ -168,7 +198,7 @@ public struct GameState: Codable, Equatable, Sendable {
 extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
-        case touchesThisSide, rallyCount, lastFlightWasNetError
+        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes
     }
 
     struct MovingAthlete: Codable {
@@ -194,6 +224,8 @@ extension GameState {
         touchesThisSide = try c.decode(Int.self, forKey: .touchesThisSide)
         rallyCount = try c.decode(Int.self, forKey: .rallyCount)
         lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
+        calls = try c.decode([TeamCalls].self, forKey: .calls)
+        notes = try c.decode(RallyNotes.self, forKey: .notes)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -216,5 +248,7 @@ extension GameState {
         try c.encode(touchesThisSide, forKey: .touchesThisSide)
         try c.encode(rallyCount, forKey: .rallyCount)
         try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)
+        try c.encode(calls, forKey: .calls)
+        try c.encode(notes, forKey: .notes)
     }
 }
