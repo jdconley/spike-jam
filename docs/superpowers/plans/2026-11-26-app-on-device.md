@@ -58,6 +58,13 @@ Everything in plans 1–4, plus:
 
 ### Task 1: The app target, the game loop and the client loop
 
+> **Done early (PR #6):** Tasks 1 and 2 shipped as a separate `SpikeJamDev` target (`com.conleychaos.spikejam.dev`, sources `App/`, tests `AppTests/`) so TestFlight keeps shipping the playable spike meanwhile. Differences from the text below:
+> - `ClientLoop.send` takes `PlayerInput` for now. Task 3 changes it to `send(_ a: InputAction, at:)` once plan 4 lands.
+> - `pause()` and `resume(at:)` are on the protocol.
+> - `CourtScene` reads `fire` by reflection until plan 4 adds it. Replace that with direct access then.
+>
+> The new last step of this plan, in Task 6: point the `SpikeJam` target at `App/` (the bundle ID stays `com.conleychaos.spikejam`), delete `SpikeJam/*.swift`, and drop the `SpikeJamDev` target.
+
 **Files:**
 - Modify: `project.yml`, which replaces the `SpikeJam` target's sources with `App/` and adds the local package `Packages/SpikeCore`
 - Delete: `SpikeJam/App.swift`, `SpikeJam/Court.swift` and `SpikeJam/Sim.swift` (the spike). Keep `SpikeJam/Info.plist` and the assets the pipeline PR added, moved into `App/`
