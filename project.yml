@@ -17,10 +17,11 @@ targets:
     sources: [SpikeJam]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.spike
+        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Spike Jam
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UIStatusBarHidden: YES
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
@@ -30,6 +31,12 @@ targets:
     info:
       path: SpikeJam/Info.plist
       properties:
+        CFBundleDisplayName: Spike Jam
+        # The build number comes from CURRENT_PROJECT_VERSION, which scripts/testflight.sh overrides.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # No encryption beyond what the OS provides: TestFlight asks no export compliance question.
+        ITSAppUsesNonExemptEncryption: false
         CADisableMinimumFrameDurationOnPhone: true
         UIStatusBarHidden: true
         GCSupportsControllerUserInteraction: true
