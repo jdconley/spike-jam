@@ -64,6 +64,13 @@ public enum GameEvent: Equatable, Sendable {
     case matchWon(TeamSide)
     /// The set is away to `hitter` for `call` (the set labels show it).
     case setCall(AthleteID, PlayCall)
+    /// A human's touch is coming: the flight toward contact `id` started,
+    /// and `owner` plays it at `contactTick` (the serve's is the toss's top
+    /// once it's tossed, so it comes again then). Inputs for it name `id`.
+    case window(ContactID, TouchKind, owner: HumanID, contactTick: Int)
+    /// How a human's touch was timed. Every window gets one, except a float
+    /// serve, which isn't timed.
+    case judged(ContactID, Grade)
     /// A touch went wrong this way (each has its own animation). It follows
     /// the touch's `touched` event, or the attack's for a stuff block.
     case erred(TouchKind, AthleteID, TouchError)
@@ -90,6 +97,9 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     /// What happens to an attack if the block doesn't touch it: the dig or
     /// the ball landing. Set while a block is pending.
     public var afterBlock: PendingContact?
+    /// A human's block against the set in the air, from the set until the
+    /// attack crosses the net.
+    public var block: BlockWindow?
 
     public init() {
         passQuality = 1
@@ -97,6 +107,33 @@ public struct RallyNotes: Codable, Equatable, Sendable {
         recentHitters = [[], []]
         reads = [nil, nil]
         afterBlock = nil
+        block = nil
+    }
+}
+
+/// A human's block (spec §4.2): it opens as the other side's set leaves the
+/// setter's hands, and the owner's tap jumps their blocker at once. The
+/// jump's peak is judged against the attack.
+public struct BlockWindow: Codable, Equatable, Sendable {
+    /// The block contact's number.
+    public var id: ContactID
+    public var owner: HumanID
+    /// The blocker the owner jumps with: the one they control, or for "ball"
+    /// the one who lines up on the ball.
+    public var athlete: AthleteID
+    /// The attack the block is against, and its tick.
+    public var attack: ContactID
+    public var attackTick: Int
+    /// The jump's grade once they've jumped.
+    public var grade: Grade?
+
+    public init(id: ContactID, owner: HumanID, athlete: AthleteID, attack: ContactID, attackTick: Int, grade: Grade? = nil) {
+        self.id = id
+        self.owner = owner
+        self.athlete = athlete
+        self.attack = attack
+        self.attackTick = attackTick
+        self.grade = grade
     }
 }
 
@@ -132,6 +169,11 @@ public struct GameState: Codable, Equatable, Sendable {
     public var humans: [HumanSlot]
     /// The number the next contact gets.
     public var nextContactID: ContactID
+    /// Touch inputs waiting for the contact they're for, in arrival order.
+    public var inputBuffer: [PlayerInput]
+    /// Who owned each side's latest human contact, by `TeamSide.rawValue`:
+    /// two "ball" humans take turns from it.
+    public var lastToucherHuman: [HumanID?]
 
     /// A match. With `humans`, their sides count as human sides
     /// (`MatchSettings.humanSides`).
@@ -141,6 +183,8 @@ public struct GameState: Codable, Equatable, Sendable {
         self.settings = settings
         self.humans = humans
         nextContactID = ContactID(raw: 1)
+        inputBuffer = []
+        lastToucherHuman = [nil, nil]
         var rng = SeededRNG(seed: settings.seed)
         let rosters = TeamSide.allCases.map { side in
             RosterGenerator.make(team: side, gameType: settings.gameType, system: settings.team(side).system, rng: &rng)
@@ -235,6 +279,7 @@ extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
         case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes, humans, nextContactID
+        case inputBuffer, lastToucherHuman
     }
 
     struct MovingAthlete: Codable {
@@ -264,6 +309,8 @@ extension GameState {
         notes = try c.decode(RallyNotes.self, forKey: .notes)
         humans = try c.decode([HumanSlot].self, forKey: .humans)
         nextContactID = try c.decode(ContactID.self, forKey: .nextContactID)
+        inputBuffer = try c.decode([PlayerInput].self, forKey: .inputBuffer)
+        lastToucherHuman = try c.decode([HumanID?].self, forKey: .lastToucherHuman)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -290,5 +337,7 @@ extension GameState {
         try c.encode(notes, forKey: .notes)
         try c.encode(humans, forKey: .humans)
         try c.encode(nextContactID, forKey: .nextContactID)
+        try c.encode(inputBuffer, forKey: .inputBuffer)
+        try c.encode(lastToucherHuman, forKey: .lastToucherHuman)
     }
 }

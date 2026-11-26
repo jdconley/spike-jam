@@ -50,6 +50,8 @@ public struct MatchStats: Equatable, Sendable {
     public var drops: [TouchKind: Int] = [:]
     /// Every `erred` event, by kind of touch and error.
     public var errors: [TouchKind: [TouchError: Int]] = [:]
+    /// Every human touch's timing grade (`judged` events).
+    public var grades: [Grade: Int] = [:]
 
     public init() {}
 
@@ -97,6 +99,7 @@ public struct MatchStats: Equatable, Sendable {
         t.setCalls.merge(o.setCalls, uniquingKeysWith: +)
         t.drops.merge(o.drops, uniquingKeysWith: +)
         t.errors.merge(o.errors) { a, b in a.merging(b, uniquingKeysWith: +) }
+        t.grades.merge(o.grades, uniquingKeysWith: +)
         return t
     }
 }
@@ -150,7 +153,8 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
                     if call == .dump { stats.tips += 1 }
                 case .tipped: stats.tips += 1
                 case .erred(let kind, _, let error): stats.errors[kind, default: [:]][error, default: 0] += 1
-                case .liberoIn, .matchWon: break
+                case .judged(_, let grade): stats.grades[grade, default: 0] += 1
+                case .liberoIn, .matchWon, .window: break
                 }
                 if case .touched(.set, let who, _) = e,
                    who != s.lineups[who.team.rawValue].settingSetter(isServing: s.isServing(who.team)) {

@@ -1,5 +1,7 @@
-/// Where a human's touches come from until plan 4 wires in real input. The
-/// AI makes every touch a source doesn't claim.
+/// A stand-in for a human's timing, for tuning and tests (`spikesim
+/// --human`): it claims touches nobody owns and gives their timing grade
+/// directly, without inputs. Real humans play through `PlayerInput`s and
+/// `HumanTouch`; the AI makes every touch nobody plays.
 public protocol TouchSource: Sendable {
     /// The human's timing grade for this touch, 0...1, or nil when it isn't a
     /// human's touch (the AI plays it).
@@ -23,7 +25,20 @@ public enum BlockOutcome: String, Codable, Sendable {
 enum Rally {
     // MARK: Serve
 
-    static func serve(_ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?) {
+    /// The line-ups are ready: a bot serves at once; a human's server waits
+    /// for the toss (`Tuning.serveClock` at most).
+    static func beginServe(_ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?) {
+        let team = s.score.serving
+        let server = s.lineups[team.rawValue].server()
+        guard Ownership.owner(for: server, kind: .serve, s) != nil else {
+            serve(&s, &events, src)
+            return
+        }
+        s.phase = .rally
+        s.pending = PendingContact(kind: .serve, team: team, athlete: server, tick: s.tick + ticks(Tuning.serveClock))
+    }
+
+    static func serve(_ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?, play: HumanPlay? = nil) {
         let team = s.score.serving
         // Bot teams call their plays; a human's team keeps its calls.
         for side in TeamSide.allCases where !s.settings.humanSides.contains(side) { SetterAI.huddle(&s, team: side) }
@@ -42,7 +57,7 @@ enum Rally {
         s.notes.afterBlock = nil
         events.append(.served(server))
 
-        let r = touch(.serve, server, &s, src, quality: 1, power: 0, slack: 1, blockers: 0)
+        let r = touch(.serve, server, &s, src, quality: 1, power: 0, slack: 1, blockers: 0, play: play)
         let duration = Tuning.serveDuration * s.settings.tempo.flightScale * s.settings.gameType.paceScale
             * Double(1.2 - 0.4 * r.power)
         if let e = r.error {
@@ -61,26 +76,48 @@ enum Rally {
 
     // MARK: Touches
 
+    /// Whether contact `c` is played on this step: on its tick, but an owned
+    /// one waits for its owner's input, up to `graceWindow` late. A serve is
+    /// struck the moment it's released, or missed when the toss comes down
+    /// (or never goes up). A block's timing was its jump, so it never waits.
+    static func due(_ c: PendingContact, _ s: GameState) -> Bool {
+        guard c.owner != nil, let kind = c.kind, kind != .block else { return s.tick >= c.tick }
+        let mine = s.inputs(for: c)
+        if HumanTouch.striking(c, inputs: mine) != nil { return kind == .serve || s.tick >= c.tick }
+        if kind == .serve && HumanTouch.press(mine) == nil { return s.tick >= c.tick }
+        return s.tick >= c.tick + nearestTicks(Tuning.graceWindow)
+    }
+
     static func resolve(_ c: PendingContact, _ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)? = nil) {
         guard let kind = c.kind else {
             endRally(winner: c.team, reason: c.reason ?? .kill, &s, &events)
             return
         }
+        var play: HumanPlay?
+        if c.owner != nil && kind != .block {
+            let p = HumanTouch.play(for: c, inputs: s.inputs(for: c))
+            if !p.float { events.append(.judged(c.id, p.grade)) }
+            play = p
+        }
         switch kind {
-        case .receive, .dig: pass(kind, c, &s, &events, src)
-        case .set: set(c, &s, &events, src)
-        case .attack: attack(c.athlete!, c.team, call: s.notes.play, setQuality: c.quality, &s, &events, src)
+        case .receive, .dig: pass(kind, c, &s, &events, src, play)
+        case .set: set(c, &s, &events, src, play)
+        case .attack: attack(c.athlete!, c.team, call: s.notes.play, setQuality: c.quality, &s, &events, src, play)
         case .block: block(c, &s, &events, src)
-        case .serve: serve(&s, &events, src)
+        case .serve: serve(&s, &events, src, play: play)
         }
     }
 
-    /// Rolls `id`'s touch. A human's comes from `src` and is never nudged; the
-    /// AI's gets its side's catch-up level.
+    /// Rolls `id`'s touch. A human's comes from their `play` (or `src`) and is
+    /// never nudged; the AI's gets its side's catch-up level.
     static func touch(_ kind: TouchKind, _ id: AthleteID, _ s: inout GameState, _ src: (any TouchSource)?,
-                      quality: Float, power: Float, slack: Double, blockers: Int) -> TouchResult {
-        roll(kind, id, &s, timing: humanTiming(kind, id, &s, src), quality: quality, power: power, slack: slack,
-             blockers: blockers)
+                      quality: Float, power: Float, slack: Double, blockers: Int, play: HumanPlay? = nil) -> TouchResult {
+        if let play {
+            let c = context(kind, id, s, timing: play.timing, quality: quality, power: power, slack: slack, blockers: blockers)
+            return HumanTouch.result(play, c, rng: &s.rng, settings: s.settings)
+        }
+        return roll(kind, id, &s, timing: humanTiming(kind, id, &s, src), quality: quality, power: power, slack: slack,
+                    blockers: blockers)
     }
 
     /// Rolls `id`'s touch with a human's `timing`, or the AI's when nil.
@@ -122,12 +159,12 @@ enum Rally {
 
     /// A serve receive or a dig.
     static func pass(_ kind: TouchKind, _ c: PendingContact, _ s: inout GameState, _ events: inout [GameEvent],
-                     _ src: (any TouchSource)?) {
+                     _ src: (any TouchSource)?, _ play: HumanPlay? = nil) {
         let athlete = c.athlete!, team = c.team
         s.touchesThisSide = 1
         s.lastTouch = athlete
         let from = s.ball!.position(at: s.time)
-        let r = touch(kind, athlete, &s, src, quality: c.quality, power: c.power, slack: c.slack, blockers: 0)
+        let r = touch(kind, athlete, &s, src, quality: c.quality, power: c.power, slack: c.slack, blockers: 0, play: play)
         if let e = r.error {
             events.append(.touched(kind, athlete, quality: 0))
             events.append(.erred(kind, athlete, e))
@@ -193,24 +230,31 @@ enum Rally {
         return quickest(s, others, to: point, contactTick: contactTick)
     }
 
-    static func set(_ c: PendingContact, _ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?) {
+    static func set(_ c: PendingContact, _ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?,
+                    _ play: HumanPlay? = nil) {
         let setter = c.athlete!, team = c.team
         s.touchesThisSide = 2
         s.lastTouch = setter
         let from = s.ball!.position(at: s.time)
         let setting = s.lineups[team.rawValue].settingSetter(isServing: s.isServing(team))
-        // A human setter's choice comes with plan 4; until then the AI's,
-        // never nudged for a human.
-        let timing = humanTiming(.set, setter, &s, src)
+        // A human setter's swipe picks the hitter, if that hitter has a live
+        // play; otherwise (and for a tap) the AI's choice, never nudged for a
+        // human.
+        let timing = play?.timing ?? humanTiming(.set, setter, &s, src)
         let level: Float = timing == nil ? nudge(s, team) : 0
-        let (hitter, call) = SetterAI.choose(&s, team: team, passQuality: s.notes.passQuality, setter: setter, nudge: level)
+        let chosen = play?.hitter.flatMap { h in
+            SetterAI.options(s, team: team, passQuality: s.notes.passQuality, setter: setter).first { $0.hitter == h }
+        }
+        let (hitter, call) = chosen.map { ($0.hitter, $0.call) }
+            ?? SetterAI.choose(&s, team: team, passQuality: s.notes.passQuality, setter: setter, nudge: level)
         remember(&s, team: team, hitter: hitter)
         if call == .dump {
             events.append(.setCall(setter, .dump))
-            attack(setter, team, call: .dump, setQuality: c.quality, &s, &events, src)
+            attack(setter, team, call: .dump, setQuality: c.quality, &s, &events, src, play)
             return
         }
-        let r = roll(.set, setter, &s, timing: timing, quality: c.quality, power: 0, slack: c.slack, blockers: 0)
+        let r = play.map { touch(.set, setter, &s, nil, quality: c.quality, power: 0, slack: c.slack, blockers: 0, play: $0) }
+            ?? roll(.set, setter, &s, timing: timing, quality: c.quality, power: 0, slack: c.slack, blockers: 0)
         if let e = r.error {
             events.append(.touched(.set, setter, quality: 0))
             events.append(.erred(.set, setter, e))
@@ -253,7 +297,8 @@ enum Rally {
     /// `hitter` attacks the ball where it is now: a spike or a tip off a set,
     /// or the setter's dump off the pass.
     static func attack(_ hitter: AthleteID, _ team: TeamSide, call: PlayCall?, setQuality: Float,
-                       _ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?) {
+                       _ s: inout GameState, _ events: inout [GameEvent], _ src: (any TouchSource)?,
+                       _ play: HumanPlay? = nil) {
         s.touchesThisSide = 0
         s.lastTouch = hitter
         s.notes.play = nil
@@ -262,7 +307,7 @@ enum Rally {
         let from = s.ball!.position(at: s.time)
         let defending = team.other
         let aligned = blockersAligned(s, at: from, defending: defending)
-        let r = touch(.attack, hitter, &s, src, quality: setQuality, power: 0, slack: 1, blockers: aligned)
+        let r = touch(.attack, hitter, &s, src, quality: setQuality, power: 0, slack: 1, blockers: aligned, play: play)
         events.append(.touched(.attack, hitter, quality: r.quality))
         let soft = r.tip || call == .dump
         let power = call == .dump ? Tuning.tipPower : r.power
@@ -279,7 +324,8 @@ enum Rally {
             return
         }
         if r.tip && call != .dump { events.append(.tipped(hitter)) }
-        let spot = attackTarget(&s, hitter: hitter, from: from, quality: r.quality, soft: soft)
+        // A human aims it; the AI hits where the defense isn't.
+        let spot = r.target?.xz ?? attackTarget(&s, hitter: hitter, from: from, quality: r.quality, soft: soft)
         let playable = 1 - r.quality
         let (ball, after) = aim(.dig, to: defending, spot: spot, from: from, duration: duration, dropReason: .kill,
                                 quality: playable, power: power, &s)
@@ -367,9 +413,26 @@ enum Rally {
             return
         }
         let aligned = covers.filter { $0.cover >= 0.3 }.count
-        let r = touch(.block, primary.id, &s, src, quality: c.quality, power: c.power, slack: 1, blockers: aligned)
+        // The human's blocker blocks with their jump's timing; anyone else
+        // on the block is the AI's.
+        var play: HumanPlay?
+        if let w = s.notes.block, w.id == c.id, w.athlete == primary.id { play = HumanPlay(grade: w.grade ?? .miss) }
+        let r = touch(.block, primary.id, &s, play == nil ? src : nil, quality: c.quality, power: c.power, slack: 1,
+                      blockers: aligned, play: play)
         events.append(.touched(.block, primary.id, quality: r.quality))
         applyBlock(outcome(of: r), blocker: primary.id, hitter: hitter, &s, &events)
+    }
+
+    /// A human's block jump, at once: it peaks half a block jump later, and
+    /// that peak is judged against the attack.
+    static func jump(_ input: PlayerInput, _ s: inout GameState, _ events: inout [GameEvent]) {
+        guard var w = s.notes.block, s.motion[w.athlete] != nil else { return }
+        s.motion[w.athlete]!.jump = Jump(startTick: input.tick, durationTicks: Tuning.blockJumpTicks, height: Tuning.blockJumpHeight)
+        let peak = input.time + Double(Tuning.blockJumpTicks / 2) * Tuning.dt
+        let grade = TimingJudge.grade(inputTime: peak, contactTime: Double(w.attackTick) * Tuning.dt)
+        w.grade = grade
+        s.notes.block = w
+        events.append(.judged(w.id, grade))
     }
 
     /// Standing reach (height × 1.33) plus 0.75 of the block jump.
