@@ -10,6 +10,7 @@
 		25085AA2F523AA7A35374121 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E53E845DD8D49A4F14BB889 /* App.swift */; };
 		4204CF724EA7BEF4D03D65E7 /* Court.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1C98373C8CC8EC13072714 /* Court.swift */; };
 		4AAC5EC90266971110A365C1 /* Sim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437DA33EAACC95668443EF6E /* Sim.swift */; };
+		71848C4A1EA2D30765299B99 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F6066211BBD7F75B992B158E /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,6 +19,7 @@
 		437DA33EAACC95668443EF6E /* Sim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sim.swift; sourceTree = "<group>"; };
 		5E53E845DD8D49A4F14BB889 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		AD3B97FEE363DC3E1BEA16FF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F6066211BBD7F75B992B158E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -41,6 +43,7 @@
 			isa = PBXGroup;
 			children = (
 				5E53E845DD8D49A4F14BB889 /* App.swift */,
+				F6066211BBD7F75B992B158E /* Assets.xcassets */,
 				2F1C98373C8CC8EC13072714 /* Court.swift */,
 				AD3B97FEE363DC3E1BEA16FF /* Info.plist */,
 				437DA33EAACC95668443EF6E /* Sim.swift */,
@@ -56,6 +59,7 @@
 			buildConfigurationList = EFC15A9B9E274F9E033533B4 /* Build configuration list for PBXNativeTarget "SpikeJam" */;
 			buildPhases = (
 				8B0047EE98A20CF662D64037 /* Sources */,
+				D3BF50F3196C0027976BC962 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -102,6 +106,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		D3BF50F3196C0027976BC962 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71848C4A1EA2D30765299B99 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		8B0047EE98A20CF662D64037 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -134,7 +149,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.conleychaos.spikejam.spike;
+				PRODUCT_BUNDLE_IDENTIFIER = com.conleychaos.spikejam;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -218,7 +233,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.conleychaos.spikejam.spike;
+				PRODUCT_BUNDLE_IDENTIFIER = com.conleychaos.spikejam;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
