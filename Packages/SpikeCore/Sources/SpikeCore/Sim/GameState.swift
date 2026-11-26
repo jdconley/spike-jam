@@ -26,9 +26,14 @@ public struct PendingContact: Codable, Equatable, Sendable {
     public var power: Float
     /// Seconds the toucher has to spare getting there (`TouchContext.reachSlack`).
     public var slack: Double
+    /// Numbered as the flight toward it starts (`ContactID.none` until then).
+    public var id: ContactID
+    /// The human who plays this touch, decided once as the flight toward it
+    /// starts (spec §5.3); nil when the AI plays it.
+    public var owner: HumanID?
 
     public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil,
-                quality: Float = 1, power: Float = 0, slack: Double = 1) {
+                quality: Float = 1, power: Float = 0, slack: Double = 1, id: ContactID = .none, owner: HumanID? = nil) {
         self.kind = kind
         self.team = team
         self.athlete = athlete
@@ -37,6 +42,8 @@ public struct PendingContact: Codable, Equatable, Sendable {
         self.quality = quality
         self.power = power
         self.slack = slack
+        self.id = id
+        self.owner = owner
     }
 }
 
@@ -93,11 +100,6 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     }
 }
 
-/// Empty until plan 4, so `step`'s signature is stable.
-public struct PlayerInput: Codable, Equatable, Sendable {
-    public init() {}
-}
-
 /// The whole match as one value (spec §5.2).
 public struct GameState: Codable, Equatable, Sendable {
     public var tick: Int
@@ -126,9 +128,19 @@ public struct GameState: Codable, Equatable, Sendable {
     /// Each team's play calls, indexed by `TeamSide.rawValue`.
     public var calls: [TeamCalls]
     public var notes: RallyNotes
+    /// The humans playing, in the order they joined. Empty is bot against bot.
+    public var humans: [HumanSlot]
+    /// The number the next contact gets.
+    public var nextContactID: ContactID
 
-    public init(settings: MatchSettings) {
+    /// A match. With `humans`, their sides count as human sides
+    /// (`MatchSettings.humanSides`).
+    public init(settings: MatchSettings, humans: [HumanSlot] = []) {
+        var settings = settings
+        settings.humanSides.formUnion(humans.map(\.team))
         self.settings = settings
+        self.humans = humans
+        nextContactID = ContactID(raw: 1)
         var rng = SeededRNG(seed: settings.seed)
         let rosters = TeamSide.allCases.map { side in
             RosterGenerator.make(team: side, gameType: settings.gameType, system: settings.team(side).system, rng: &rng)
@@ -222,7 +234,7 @@ public struct GameState: Codable, Equatable, Sendable {
 extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
-        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes
+        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes, humans, nextContactID
     }
 
     struct MovingAthlete: Codable {
@@ -250,6 +262,8 @@ extension GameState {
         lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
         calls = try c.decode([TeamCalls].self, forKey: .calls)
         notes = try c.decode(RallyNotes.self, forKey: .notes)
+        humans = try c.decode([HumanSlot].self, forKey: .humans)
+        nextContactID = try c.decode(ContactID.self, forKey: .nextContactID)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -274,5 +288,7 @@ extension GameState {
         try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)
         try c.encode(calls, forKey: .calls)
         try c.encode(notes, forKey: .notes)
+        try c.encode(humans, forKey: .humans)
+        try c.encode(nextContactID, forKey: .nextContactID)
     }
 }

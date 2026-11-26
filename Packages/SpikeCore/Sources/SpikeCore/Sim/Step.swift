@@ -36,8 +36,23 @@ public func step(_ s: inout GameState, inputs: [PlayerInput], touches: (any Touc
     case .matchOver:
         break
     }
+    number(&s)
     Choreographer.update(&s)
     return events
+}
+
+/// Numbers every contact the rally just scheduled, as its flight starts.
+func number(_ s: inout GameState) {
+    if s.pending != nil && s.pending!.id == .none { s.pending!.id = s.takeContactID() }
+    if s.notes.afterBlock != nil && s.notes.afterBlock!.id == .none { s.notes.afterBlock!.id = s.takeContactID() }
+}
+
+extension GameState {
+    mutating func takeContactID() -> ContactID {
+        let id = nextContactID
+        nextContactID = ContactID(raw: id.raw + 1)
+        return id
+    }
 }
 
 /// One steering step for all twelve players on court.
