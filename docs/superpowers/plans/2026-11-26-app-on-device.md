@@ -196,6 +196,8 @@ Everything in plans 1–4, plus:
 
 ### Task 5: Camera, haptics, sound placeholders and the start screen
 
+> **Done early, before plan 4 (2026-11-26):** "an owned serve or attack window" goes through the `LocalOwnership` seam (`App/Feel/LocalOwnership.swift`). Its `SideOwnership` decides by side for now: the local team's pre-serve is a serve window, and its set in the air is an attack window. Task 3 points the seam at `controlled(by:)` and the open window. Slow motion lives in `App/Scene/Presentation.swift`, which draws a moment behind the live match; `MatchHost` (`App/Screens/MatchView.swift`) wires the presentation clock, camera, haptics and sound into the loop's frame. Screenshots: `docs/art/start-screen.png` and `docs/art/camera-serve.png`.
+
 **Files:**
 - Create: `App/Scene/CameraDirector.swift`, with a serve cam behind the server, a wide sideline shot, an attack swoop, and slow motion on kill finishes (visual only: the loop keeps stepping at full rate while the camera and presentation use eased time for about 0.6 s; SpikeCore is never slowed)
 - Create: `App/Feel/Haptics.swift`, a haptic per touch scaled by power and grade, plus a heavy one for kills and stuffs
