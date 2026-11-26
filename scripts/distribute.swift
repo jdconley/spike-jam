@@ -344,11 +344,19 @@ do {
     let detail = try await asc.get("/v1/builds/\(buildID)/buildBetaDetail")
     let state = (detail["data"] as? JSON).map(attributes)?["externalBuildState"] as? String ?? "unknown"
     if state == "READY_FOR_BETA_SUBMISSION" || (dryRun && state == "MISSING_EXPORT_COMPLIANCE") {
-      try await asc.write("POST", "/v1/betaAppReviewSubmissions",
-                          ["data": ["type": "betaAppReviewSubmissions",
-                                    "relationships": ["build": ["data": ["type": "builds", "id": buildID]]]]],
-                          "submit build \(version) for beta app review")
-      review = dryRun ? "would be submitted" : "submitted"
+      do {
+        try await asc.write("POST", "/v1/betaAppReviewSubmissions",
+                            ["data": ["type": "betaAppReviewSubmissions",
+                                      "relationships": ["build": ["data": ["type": "builds", "id": buildID]]]]],
+                            "submit build \(version) for beta app review")
+        review = dryRun ? "would be submitted" : "submitted"
+      } catch let e as APIError where e.description.contains("already in beta review")
+                                   || e.description.contains("Another build is in review") {
+        // Apple reviews one build per version train at a time. This build is in the group and
+        // uploaded; the next push (or a manual run with -f build=<number>) submits the newest one.
+        review = "waiting: another build of this version is in beta review"
+        print("::notice title=TestFlight::Build \(version) is in \"\(groupName)\" but not submitted, because another build is in beta review. The next push submits the newest build.")
+      }
     } else {
       review = "not submitted, the build's external state is \(state)"
       print("beta app review: \(review)")
