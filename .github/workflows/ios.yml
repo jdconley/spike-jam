@@ -76,6 +76,17 @@ jobs:
             docker run --rm -v "$PWD/Packages/SpikeCore":/pkg -w /pkg swift:latest swift test
           fi
 
+  # SpikeArt, the placeholder RealityKit art kit. RealityKit is Apple-only, so macOS only.
+  spikeart:
+    name: SpikeArt tests (macOS)
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - run: xcodebuild -version
+      - name: SpikeArt tests (macOS)
+        run: swift test --package-path Packages/SpikeArt
+
   testflight:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
