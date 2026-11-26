@@ -19,9 +19,11 @@ public struct TouchContext: Sendable {
     public var catchUp: Float
     /// A human's timing grade for the touch, 0...1; nil for the AI.
     public var timing: Float?
+    /// The toucher is on fire (spec §4.4).
+    public var onFire: Bool
 
     public init(kind: TouchKind, toucher: Athlete, incomingQuality: Float, incomingPower: Float, reachSlack: Double,
-                blockersAligned: Int, catchUp: Float, timing: Float? = nil) {
+                blockersAligned: Int, catchUp: Float, timing: Float? = nil, onFire: Bool = false) {
         self.kind = kind
         self.toucher = toucher
         self.incomingQuality = incomingQuality
@@ -30,6 +32,7 @@ public struct TouchContext: Sendable {
         self.blockersAligned = blockersAligned
         self.catchUp = catchUp
         self.timing = timing
+        self.onFire = onFire
     }
 
     public var isHuman: Bool { timing != nil }
@@ -127,12 +130,21 @@ public enum TouchModel {
         case .attack:
             let pTip = Tuning.tipChance(game) + Tuning.tipPerBlocker * Float(c.blockersAligned) + Tuning.tipOffBadSet * bad
             tip = rng.unit() < pTip
-            power = tip ? Tuning.tipPower : min(max(Tuning.attackPower(game) * (0.75 + 0.25 * q), 0), 1)
+            power = tip ? Tuning.tipPower : attackPower(quality: q, game: game, onFire: c.onFire)
+        case .receive, .dig:
+            // An on-fire libero passes perfectly.
+            if c.onFire && c.toucher.position == .libero { q = max(q, Tuning.fireLiberoPass) }
         default:
             break
         }
         guard erred else { return TouchResult(quality: q, error: nil, power: power, target: target, tip: tip) }
         return TouchResult(quality: 0, error: errorType(c.kind, rng: &rng), power: power, target: nil, tip: tip)
+    }
+
+    /// A swing's power off a hit of quality `q`; an on-fire hitter's is
+    /// harder.
+    static func attackPower(quality q: Float, game: GameType, onFire: Bool) -> Float {
+        min(max(Tuning.attackPower(game) * (0.75 + 0.25 * q) + (onFire ? Tuning.firePower : 0), 0), 1)
     }
 
     /// The trait each touch is rolled around.

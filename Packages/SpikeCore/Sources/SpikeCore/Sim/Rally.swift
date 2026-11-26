@@ -56,6 +56,7 @@ enum Rally {
         s.notes.reads = [nil, nil]
         s.notes.humanReads = [nil, nil]
         s.notes.afterBlock = nil
+        s.notes.lastAttacker = nil
         events.append(.served(server))
 
         let r = touch(.serve, server, &s, src, quality: 1, power: 0, slack: 1, blockers: 0, play: play)
@@ -141,7 +142,7 @@ enum Rally {
                         quality: Float, power: Float, slack: Double, blockers: Int) -> TouchContext {
         TouchContext(kind: kind, toucher: s.rosters[id.team.rawValue][id], incomingQuality: quality,
                      incomingPower: power, reachSlack: slack, blockersAligned: blockers,
-                     catchUp: timing == nil ? nudge(s, id.team) : 0, timing: timing)
+                     catchUp: timing == nil ? nudge(s, id.team) : 0, timing: timing, onFire: OnFire.isOnFire(id, s))
     }
 
     /// The catch-up level of `team`'s bots.
@@ -311,7 +312,9 @@ enum Rally {
         events.append(.touched(.attack, hitter, quality: r.quality))
         let soft = r.tip || call == .dump
         let power = call == .dump ? Tuning.tipPower : r.power
-        let flight = soft ? Tuning.tipDuration : Tuning.attackDuration * Double(1.25 - 0.5 * power)
+        var flight = soft ? Tuning.tipDuration : Tuning.attackDuration * Double(1.25 - 0.5 * power)
+        // An on-fire hitter's swing is faster.
+        if !soft && OnFire.isOnFire(hitter, s) { flight /= Tuning.fireAttackSpeed }
         let duration = flight * s.settings.tempo.flightScale * s.settings.gameType.paceScale
         if let e = r.error {
             events.append(.erred(.attack, hitter, e))
@@ -420,7 +423,11 @@ enum Rally {
         let r = touch(.block, primary.id, &s, play == nil ? src : nil, quality: c.quality, power: c.power, slack: 1,
                       blockers: aligned, play: play)
         events.append(.touched(.block, primary.id, quality: r.quality))
-        applyBlock(outcome(of: r), blocker: primary.id, hitter: hitter, &s, &events)
+        var result = outcome(of: r)
+        // An on-fire hitter is stuffed half as often: the ball comes off the
+        // hands instead.
+        if result == .stuff && OnFire.isOnFire(hitter, s) && !s.rng.chance(Tuning.fireStuffShare) { result = .soft }
+        applyBlock(result, blocker: primary.id, hitter: hitter, &s, &events)
     }
 
     /// A human's block jump, at once: it peaks half a block jump later, and
@@ -597,7 +604,7 @@ enum Rally {
     /// Steps for `id` to run to `point` from how they're moving now.
     static func reachTicks(_ s: GameState, _ id: AthleteID, _ point: Vec2) -> Int? {
         guard let m = s.motion[id] else { return nil }
-        let cap = Steering.cap(.run, speedTrait: s.rosters[id.team.rawValue][id].traits.speed)
+        let cap = Steering.cap(.run, speedTrait: s.rosters[id.team.rawValue][id].traits.speed) * OnFire.speedScale(id, s)
         return Int((Steering.eta(m, to: point, cap: cap) * Double(Tuning.stepsPerSecond)).rounded())
     }
 

@@ -17,9 +17,11 @@ public enum Steering {
 
     /// One step of `dt` seconds. `tick` is the step being taken; it's only
     /// needed to honour `arriveByTick`, which is ignored without it.
-    public static func advance(_ m: inout Motion, team: TeamSide, speedTrait: Float, dt: Double, tick: Int? = nil) {
+    /// `capScale` multiplies the speed cap (an on-fire libero's).
+    public static func advance(_ m: inout Motion, team: TeamSide, speedTrait: Float, dt: Double, tick: Int? = nil,
+                               capScale: Float = 1) {
         m.goal = clamp(m.goal, team: team)
-        integrate(&m, cap: cap(m.gait, speedTrait: speedTrait), dt: Float(dt), tick: tick)
+        integrate(&m, cap: cap(m.gait, speedTrait: speedTrait) * capScale, dt: Float(dt), tick: tick)
         let clamped = clamp(m.pos, team: team)
         if clamped.x != m.pos.x { m.vel.x = 0 }
         if clamped.z != m.pos.z { m.vel.z = 0 }

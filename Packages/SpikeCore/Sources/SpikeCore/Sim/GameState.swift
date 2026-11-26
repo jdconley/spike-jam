@@ -74,6 +74,8 @@ public enum GameEvent: Equatable, Sendable {
     /// How a human's touch was timed. Every window gets one, except a float
     /// serve, which isn't timed.
     case judged(ContactID, Grade)
+    /// `athlete` caught fire (`on`) or cooled off (spec §4.4).
+    case fire(AthleteID, on: Bool)
     /// A touch went wrong this way (each has its own animation). It follows
     /// the touch's `touched` event, or the attack's for a stuff block.
     case erred(TouchKind, AthleteID, TouchError)
@@ -106,6 +108,8 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     /// A human's block against the set in the air, from the set until the
     /// attack crosses the net.
     public var block: BlockWindow?
+    /// Who made the rally's latest attack, for the kill streaks.
+    public var lastAttacker: AthleteID?
 
     public init() {
         passQuality = 1
@@ -115,6 +119,7 @@ public struct RallyNotes: Codable, Equatable, Sendable {
         humanReads = [nil, nil]
         afterBlock = nil
         block = nil
+        lastAttacker = nil
     }
 }
 
@@ -181,6 +186,8 @@ public struct GameState: Codable, Equatable, Sendable {
     /// Who owned each side's latest human contact, by `TeamSide.rawValue`:
     /// two "ball" humans take turns from it.
     public var lastToucherHuman: [HumanID?]
+    /// Streaks toward on fire, for the athletes who have one going.
+    public var fire: [AthleteID: FireState]
 
     /// A match. With `humans`, their sides count as human sides
     /// (`MatchSettings.humanSides`).
@@ -192,6 +199,7 @@ public struct GameState: Codable, Equatable, Sendable {
         nextContactID = ContactID(raw: 1)
         inputBuffer = []
         lastToucherHuman = [nil, nil]
+        fire = [:]
         var rng = SeededRNG(seed: settings.seed)
         let rosters = TeamSide.allCases.map { side in
             RosterGenerator.make(team: side, gameType: settings.gameType, system: settings.team(side).system, rng: &rng)
@@ -289,7 +297,12 @@ extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
         case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes, humans, nextContactID
-        case inputBuffer, lastToucherHuman
+        case inputBuffer, lastToucherHuman, fire
+    }
+
+    struct Streak: Codable {
+        var id: AthleteID
+        var fire: FireState
     }
 
     struct MovingAthlete: Codable {
@@ -321,6 +334,8 @@ extension GameState {
         nextContactID = try c.decode(ContactID.self, forKey: .nextContactID)
         inputBuffer = try c.decode([PlayerInput].self, forKey: .inputBuffer)
         lastToucherHuman = try c.decode([HumanID?].self, forKey: .lastToucherHuman)
+        let streaks = try c.decode([Streak].self, forKey: .fire)
+        fire = Dictionary(streaks.map { ($0.id, $0.fire) }, uniquingKeysWith: { _, last in last })
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -349,5 +364,9 @@ extension GameState {
         try c.encode(nextContactID, forKey: .nextContactID)
         try c.encode(inputBuffer, forKey: .inputBuffer)
         try c.encode(lastToucherHuman, forKey: .lastToucherHuman)
+        let streaks = fire
+            .sorted { ($0.key.team.rawValue, $0.key.index) < ($1.key.team.rawValue, $1.key.index) }
+            .map { Streak(id: $0.key, fire: $0.value) }
+        try c.encode(streaks, forKey: .fire)
     }
 }

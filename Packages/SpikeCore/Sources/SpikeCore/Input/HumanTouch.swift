@@ -139,12 +139,12 @@ public enum HumanTouch {
             guard let aim = play.aim else {
                 // Struck without an aim (a tap): a swing, never a tip.
                 r.tip = false
-                if r.error == nil { r.power = min(max(Tuning.attackPower(game) * (0.75 + 0.25 * r.quality), 0), 1) }
+                if r.error == nil { r.power = TouchModel.attackPower(quality: r.quality, game: game, onFire: c.onFire) }
                 return r
             }
             let defending = team.other
             r.tip = LocalFrame.toLocal(aim, team: defending).d < Tuning.tipZone
-            r.power = r.tip ? Tuning.tipPower : min(max(Tuning.attackPower(game) * (0.75 + 0.25 * r.quality), 0), 1)
+            r.power = r.tip ? Tuning.tipPower : TouchModel.attackPower(quality: r.quality, game: game, onFire: c.onFire)
             guard r.error == nil else { return r }
             r.target = aimed(aim, at: defending, quality: r.quality, noise: Tuning.aimNoise * (1 - r.quality) * (r.tip ? 0.5 : 1),
                              depth: 0.5...8.6, width: 4.3, rng: &rng).atHeight(0)

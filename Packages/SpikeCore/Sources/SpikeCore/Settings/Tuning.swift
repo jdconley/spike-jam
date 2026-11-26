@@ -296,3 +296,21 @@ extension Tuning {
     /// the game.
     public static let huddleSeconds: Double = 4.0
 }
+
+// MARK: - On fire (spec §4.4, from the spike; the builder tunes them).
+extension Tuning {
+    /// Kills in a row, or a libero's perfect passes and digs in a row.
+    public static let fireStreak = 3
+    /// A pass or dig this good counts as perfect.
+    public static let perfectPass: Float = 0.99
+    /// An on-fire hitter's swing flies this many times as fast…
+    public static let fireAttackSpeed: Double = 1.25
+    /// …with this much more power…
+    public static let firePower: Float = 0.2
+    /// …and a block that would stuff it does so only this share of the time.
+    public static let fireStuffShare: Float = 0.5
+    /// An on-fire libero passes at least this well…
+    public static let fireLiberoPass: Float = 0.9
+    /// …and runs this much faster.
+    public static let fireLiberoSpeed: Float = 1.15
+}

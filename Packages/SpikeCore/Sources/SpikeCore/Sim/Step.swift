@@ -56,6 +56,8 @@ public func step(_ s: inout GameState, inputs: [PlayerInput], touches: (any Touc
         break
     }
     Ownership.claim(&s, &events, before: before)
+    let happened = events
+    for e in happened { OnFire.record(e, &s, &events) }
     Choreographer.update(&s)
     s.pruneInputs()
     return events
@@ -132,7 +134,8 @@ func moveEveryone(_ s: inout GameState) {
     let tick = s.tick
     for id in s.motion.keys {
         let speed = s.rosters[id.team.rawValue][id].traits.speed
-        Steering.advance(&s.motion[id]!, team: id.team, speedTrait: speed, dt: Tuning.dt, tick: tick)
+        Steering.advance(&s.motion[id]!, team: id.team, speedTrait: speed, dt: Tuning.dt, tick: tick,
+                         capScale: OnFire.speedScale(id, s))
     }
 }
 
