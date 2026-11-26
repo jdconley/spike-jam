@@ -126,3 +126,59 @@ public struct GameState: Codable, Equatable, Sendable {
         return rosters[side.rawValue].ids(.middle).first { positions[$0] == nil }
     }
 }
+
+// MARK: - Byte-stable coding
+
+/// `[AthleteID: Vec2]` would encode in hash-seeded iteration order, so equal
+/// states gave different bytes in different processes. `positions` is
+/// written as a list sorted by athlete instead; every other field is coded
+/// as the synthesized conformance would.
+extension GameState {
+    enum CodingKeys: String, CodingKey {
+        case tick, settings, rosters, lineups, score, rng, phase, ball, pending, positions
+        case touchesThisSide, rallyCount, lastFlightWasNetError
+    }
+
+    struct PlacedAthlete: Codable {
+        var id: AthleteID
+        var spot: Vec2
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tick = try c.decode(Int.self, forKey: .tick)
+        settings = try c.decode(MatchSettings.self, forKey: .settings)
+        rosters = try c.decode([Roster].self, forKey: .rosters)
+        lineups = try c.decode([Lineup].self, forKey: .lineups)
+        score = try c.decode(Score.self, forKey: .score)
+        rng = try c.decode(SeededRNG.self, forKey: .rng)
+        phase = try c.decode(Phase.self, forKey: .phase)
+        ball = try c.decodeIfPresent(Flight.self, forKey: .ball)
+        pending = try c.decodeIfPresent(PendingContact.self, forKey: .pending)
+        let placed = try c.decode([PlacedAthlete].self, forKey: .positions)
+        positions = Dictionary(placed.map { ($0.id, $0.spot) }, uniquingKeysWith: { _, last in last })
+        touchesThisSide = try c.decode(Int.self, forKey: .touchesThisSide)
+        rallyCount = try c.decode(Int.self, forKey: .rallyCount)
+        lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(tick, forKey: .tick)
+        try c.encode(settings, forKey: .settings)
+        try c.encode(rosters, forKey: .rosters)
+        try c.encode(lineups, forKey: .lineups)
+        try c.encode(score, forKey: .score)
+        try c.encode(rng, forKey: .rng)
+        try c.encode(phase, forKey: .phase)
+        try c.encodeIfPresent(ball, forKey: .ball)
+        try c.encodeIfPresent(pending, forKey: .pending)
+        let placed = positions
+            .sorted { ($0.key.team.rawValue, $0.key.index) < ($1.key.team.rawValue, $1.key.index) }
+            .map { PlacedAthlete(id: $0.key, spot: $0.value) }
+        try c.encode(placed, forKey: .positions)
+        try c.encode(touchesThisSide, forKey: .touchesThisSide)
+        try c.encode(rallyCount, forKey: .rallyCount)
+        try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)
+    }
+}
