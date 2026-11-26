@@ -87,6 +87,50 @@ jobs:
       - name: SpikeArt tests (macOS)
         run: swift test --package-path Packages/SpikeArt
 
+  # SpikeJamDev, the real app growing beside the spike (App/ and AppTests/). Built and tested,
+  # never uploaded.
+  app-dev:
+    name: SpikeJamDev build and tests (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - run: xcodebuild -version
+      - name: Install XcodeGen
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - run: scripts/bootstrap.sh
+      - name: SpikeJamDev build for device (unsigned)
+        run: >
+          xcodebuild build -project SpikeJam.xcodeproj -scheme SpikeJamDev -configuration Release
+          -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO -quiet
+      # The newest available iPhone simulator on an iOS 26 or later runtime.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          id=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          rts = json.load(sys.stdin)["devices"]
+          best = None
+          for rt, devs in rts.items():
+              if ".iOS-" not in rt: continue
+              ver = tuple(int(x) for x in rt.split(".iOS-")[1].split("-"))
+              if ver < (26,): continue
+              for d in devs:
+                  if d["name"].startswith("iPhone") and (best is None or ver > best[0]):
+                      best = (ver, d["udid"], d["name"])
+          print(best[1] if best else "")
+          ')
+          if [ -z "$id" ]; then echo "::error::no iOS 26+ iPhone simulator"; exit 1; fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: SpikeJamDev tests
+        run: >
+          xcodebuild test -project SpikeJam.xcodeproj -scheme SpikeJamDev
+          -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" -quiet
+
   testflight:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
