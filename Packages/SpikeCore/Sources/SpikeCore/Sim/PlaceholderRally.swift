@@ -1,6 +1,6 @@
-/// A stand-in rally engine with fixed odds from `Tuning`. Players stand on
-/// their zone spots and every touch is a dice roll. Plans 2–4 replace it with
-/// movement, AI traits and human input on the same state and `step`.
+/// A stand-in rally engine with fixed odds from `Tuning`. Every touch is a
+/// dice roll; the choreographer moves the players around it. Plans 3–4
+/// replace it with AI traits and human input on the same state and `step`.
 enum PlaceholderRally {
     // MARK: Serve
 
@@ -8,10 +8,12 @@ enum PlaceholderRally {
         let team = s.score.serving
         let lineup = s.lineups[team.rawValue]
         let server = lineup.server()
-        let spotZ = Court.zoneSpot(.z1, team: team).z
-        let from = Vec3(x: -9.9 * team.dir, y: 2.6, z: spotZ)
+        // Struck from where the server stands, behind the end line.
+        let from = s.motion[server]!.pos.atHeight(2.6)
         s.phase = .rally
         s.touchesThisSide = 0
+        s.serveTick = s.tick
+        s.lastTouch = server
         events.append(.served(server))
 
         let duration = Tuning.serveDuration * s.settings.tempo.flightScale * s.settings.gameType.paceScale
@@ -58,6 +60,7 @@ enum PlaceholderRally {
 
     static func pass(_ kind: TouchKind, _ athlete: AthleteID, _ team: TeamSide, _ s: inout GameState, _ events: inout [GameEvent]) {
         s.touchesThisSide = 1
+        s.lastTouch = athlete
         let from = s.ball!.position(at: s.time)
         if s.rng.chance(Tuning.passError) {
             events.append(.touched(kind, athlete, quality: 0))
@@ -66,33 +69,84 @@ enum PlaceholderRally {
         }
         let q = s.rng.float(in: Tuning.passQuality)
         events.append(.touched(kind, athlete, quality: q))
-        let duration = (Tuning.passDurationBase + Tuning.passDurationSpread * Double(1 - q)) * s.settings.tempo.flightScale
-        launch(&s, Flight.make(from: from, to: Court.setterTarget(team: team), duration: clamp(duration), startTime: s.time))
-        let setter = s.lineups[team.rawValue].settingSetter(isServing: s.isServing(team))
+        let duration = clamp((Tuning.passDurationBase + Tuning.passDurationSpread * Double(1 - q)) * s.settings.tempo.flightScale)
+        let to = Court.setterTarget(team: team)
+        let flight = Flight.make(from: from, to: to, duration: duration, startTime: s.time)
+        guard let setter = whoSets(s, team, passer: athlete, at: to.xz, contactTick: contactTick(s, flight)) else {
+            // Nobody can get to the pass in time: it falls to the floor.
+            events.append(.outOfReach(.set, team: team))
+            launch(&s, Flight.make(from: from, to: to.xz.atHeight(0), duration: duration, startTime: s.time))
+            s.pending = landing(&s, winner: team.other, reason: .handlingError)
+            return
+        }
+        launch(&s, flight)
         s.pending = PendingContact(kind: .set, team: team, athlete: setter, tick: contactTick(s))
     }
 
+    /// Who plays the second ball at `point` on `contactTick`: the setting
+    /// setter if they can get there, otherwise the quickest teammate who can
+    /// (never the libero, nor the passer, who can't touch it twice). Nil if
+    /// nobody can.
+    static func whoSets(_ s: GameState, _ team: TeamSide, passer: AthleteID, at point: Vec2, contactTick: Int) -> AthleteID? {
+        let lineup = s.lineups[team.rawValue]
+        let setter = lineup.settingSetter(isServing: s.isServing(team))
+        if setter != passer, let eta = reachTicks(s, setter, point), eta <= contactTick - s.tick + reachGraceTicks {
+            return setter
+        }
+        let others = Zone.allCases.map { lineup.occupant($0, isServing: s.isServing(team)) }
+            .filter { $0 != setter && $0 != passer && $0 != lineup.libero }
+        return quickest(s, others, to: point, contactTick: contactTick)
+    }
+
+    /// Of `ids`, the one who gets to `point` soonest, if they make it by
+    /// `contactTick` (with `reachGraceTicks` to spare). Ties go to the first.
+    static func quickest(_ s: GameState, _ ids: [AthleteID], to point: Vec2, contactTick: Int) -> AthleteID? {
+        var best: (AthleteID, Int)?
+        for id in ids {
+            guard let eta = reachTicks(s, id, point) else { continue }
+            if best == nil || eta < best!.1 { best = (id, eta) }
+        }
+        guard let (id, eta) = best, eta <= contactTick - s.tick + reachGraceTicks else { return nil }
+        return id
+    }
+
+    /// Steps for `id` to run to `point` from how they're moving now.
+    static func reachTicks(_ s: GameState, _ id: AthleteID, _ point: Vec2) -> Int? {
+        guard let m = s.motion[id] else { return nil }
+        let cap = Steering.cap(.run, speedTrait: s.rosters[id.team.rawValue][id].traits.speed)
+        return Int((Steering.eta(m, to: point, cap: cap) * Double(Tuning.stepsPerSecond)).rounded())
+    }
+
+    /// A player this late (0.1 s) still makes the play.
+    static var reachGraceTicks: Int { ticks(Tuning.reachGrace) }
+
     static func set(_ setter: AthleteID, _ team: TeamSide, _ s: inout GameState, _ events: inout [GameEvent]) {
         s.touchesThisSide = 2
+        s.lastTouch = setter
         let from = s.ball!.position(at: s.time)
         if s.rng.chance(Tuning.setError) {
             events.append(.touched(.set, setter, quality: 0))
             shank(&s, from: from, team: team)
             return
         }
-        let q = s.rng.float(in: Tuning.passQuality)
-        events.append(.touched(.set, setter, quality: q))
+        var q = s.rng.float(in: Tuning.passQuality)
         let lineup = s.lineups[team.rawValue]
-        let hitters = lineup.attackers(isServing: s.isServing(team))
+        // A teammate bailing out a late setter sets a worse ball.
+        if setter != lineup.settingSetter(isServing: s.isServing(team)) { q = min(q, Tuning.backupSetQuality) }
+        events.append(.touched(.set, setter, quality: q))
+        let hitters = lineup.attackers(isServing: s.isServing(team)).filter { $0 != setter }
         let hitter = hitters[s.rng.int(in: 0..<hitters.count)]
-        let zone = lineup.zone(of: hitter)!
-        let duration = Tuning.setDuration(zone) * s.settings.tempo.flightScale
-        launch(&s, Flight.make(from: from, to: Court.attackPoint(zone, team: team), duration: clamp(duration), startTime: s.time))
+        // Hitters switch at the serve, so the set goes to the hitter's own
+        // lane, not the zone they rotated into.
+        let lane = BaseSpots.defaultLane(for: s.rosters[team.rawValue][hitter].position, frontRow: true)
+        let duration = Tuning.setDuration(lane.zone) * s.settings.tempo.flightScale
+        launch(&s, Flight.make(from: from, to: BaseSpots.defaultSetPoint(lane, team: team), duration: clamp(duration), startTime: s.time))
         s.pending = PendingContact(kind: .attack, team: team, athlete: hitter, tick: contactTick(s))
     }
 
     static func attack(_ hitter: AthleteID, _ team: TeamSide, _ s: inout GameState, _ events: inout [GameEvent]) {
         s.touchesThisSide = 0
+        s.lastTouch = hitter
         let from = s.ball!.position(at: s.time)
         let q = s.rng.float(in: Tuning.passQuality)
         events.append(.touched(.attack, hitter, quality: q))
@@ -123,6 +177,7 @@ enum PlaceholderRally {
         s.ball = nil
         s.pending = nil
         s.touchesThisSide = 0
+        s.lastTouch = nil
         s.rallyCount += 1
         events.append(.point(winner, reason))
         let result = awardRally(to: winner, score: &s.score, lineups: &s.lineups, settings: s.settings)
@@ -173,7 +228,11 @@ enum PlaceholderRally {
 
     /// The first step at or after the current flight's end.
     static func contactTick(_ s: GameState) -> Int {
-        let end = s.ball!.endTime * Double(Tuning.stepsPerSecond)
+        contactTick(s, s.ball!)
+    }
+
+    static func contactTick(_ s: GameState, _ f: Flight) -> Int {
+        let end = f.endTime * Double(Tuning.stepsPerSecond)
         return max(s.tick + 1, Int((end - 1e-9).rounded(.up)))
     }
 
@@ -198,6 +257,6 @@ enum PlaceholderRally {
             .sorted { $0.key.rawValue < $1.key.rawValue }
             .map(\.value)
             .filter { $0 != setter }
-        return candidates.min { (s.positions[$0]! - spot).length < (s.positions[$1]! - spot).length }!
+        return candidates.min { (s.motion[$0]!.pos - spot).length < (s.motion[$1]!.pos - spot).length }!
     }
 }

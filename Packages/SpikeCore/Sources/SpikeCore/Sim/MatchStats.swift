@@ -47,7 +47,7 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
                     case .attackError: stats.attackErrors += 1
                     case .handlingError: stats.handlingErrors += 1
                     }
-                case .liberoIn, .matchWon: break
+                case .liberoIn, .outOfReach, .matchWon: break
                 }
             }
             if !broken && !checkInvariants(s).isEmpty {

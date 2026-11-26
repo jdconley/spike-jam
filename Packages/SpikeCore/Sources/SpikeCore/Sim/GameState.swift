@@ -41,6 +41,9 @@ public enum GameEvent: Equatable, Sendable {
     case point(TeamSide, PointReason)
     case sideOut(TeamSide, rotation: Int)
     case liberoIn(AthleteID, for: AthleteID)
+    /// Nobody on `team` could get to the ball for this touch in time, so it
+    /// drops (a serve or attack) or is fumbled (a set).
+    case outOfReach(TouchKind, team: TeamSide)
     case matchWon(TeamSide)
 }
 
@@ -61,8 +64,12 @@ public struct GameState: Codable, Equatable, Sendable {
     public var phase: Phase
     public var ball: Flight?
     public var pending: PendingContact?
-    /// The players on court and where they stand.
-    public var positions: [AthleteID: Vec2]
+    /// The players on court and how they move (spec §5.2).
+    public var motion: [AthleteID: Motion]
+    /// The tick of the latest serve contact; -1 before the first serve.
+    public var serveTick: Int
+    /// Who made the latest touch (the serve included); nil between rallies.
+    public var lastTouch: AthleteID?
     public var touchesThisSide: Int
     /// Rallies completed.
     public var rallyCount: Int
@@ -87,7 +94,9 @@ public struct GameState: Codable, Equatable, Sendable {
         phase = .preServe(untilTick: Int(Tuning.serveDelay * Double(Tuning.stepsPerSecond)))
         ball = nil
         pending = nil
-        positions = [:]
+        motion = [:]
+        serveTick = -1
+        lastTouch = nil
         touchesThisSide = 0
         rallyCount = 0
         lastFlightWasNetError = false
@@ -99,49 +108,72 @@ public struct GameState: Codable, Equatable, Sendable {
 
     public func isServing(_ side: TeamSide) -> Bool { score.serving == side }
 
-    /// Re-places every on-court player on their zone spot. Returns a
-    /// `liberoIn` event for each team whose libero now replaces a different
-    /// middle than before.
+    /// The players on court and where they stand.
+    public var positions: [AthleteID: Vec2] {
+        get { motion.mapValues(\.pos) }
+        set {
+            for id in motion.keys where newValue[id] == nil { motion[id] = nil }
+            for (id, p) in newValue {
+                if motion[id] != nil { motion[id]!.pos = p } else { motion[id] = Motion(pos: p) }
+            }
+        }
+    }
+
+    /// Brings `motion` in line with the on-court six after a rotation or a
+    /// libero swap. A player coming on takes over the spot and momentum of the
+    /// one going off; at the start everyone stands on their formation spot.
+    /// Returns a `liberoIn` event for each team whose libero now replaces a
+    /// different middle than before.
     mutating func refreshPositions() -> [GameEvent] {
         var events: [GameEvent] = []
-        var next: [AthleteID: Vec2] = [:]
         for side in TeamSide.allCases {
             let lineup = lineups[side.rawValue]
-            let before = liberoReplacing(side, in: positions)
-            for (z, id) in lineup.onCourt(isServing: isServing(side)) {
-                next[id] = Court.zoneSpot(z, team: side)
+            let before = liberoReplacing(side, in: motion)
+            let serving = isServing(side)
+            let court = Zone.allCases.map { ($0, lineup.occupant($0, isServing: serving)) }
+            let onCourt = Set(court.map(\.1))
+            let leaving = motion.keys.filter { $0.team == side && !onCourt.contains($0) }.sorted { $0.index < $1.index }
+            var handOver = leaving.map { motion.removeValue(forKey: $0)! }
+            for (z, id) in court where motion[id] == nil {
+                if !handOver.isEmpty {
+                    let from = handOver.removeFirst()
+                    motion[id] = Motion(pos: from.pos, vel: from.vel)
+                } else {
+                    let spot = serving ? Formations.servingSpot(z)
+                        : Formations.receiveSpot(z, system: lineup.system, rotation: lineup.rotation)
+                    motion[id] = Motion(pos: LocalFrame.toWorld(spot, team: side))
+                }
             }
-            if let now = liberoReplacing(side, in: next), now != before {
+            if let now = liberoReplacing(side, in: motion), now != before {
                 events.append(.liberoIn(lineup.libero, for: now))
             }
         }
-        positions = next
         return events
     }
 
-    /// The middle the libero stands in for in `positions`, if the libero is on.
-    func liberoReplacing(_ side: TeamSide, in positions: [AthleteID: Vec2]) -> AthleteID? {
+    /// The middle the libero stands in for, if the libero is on.
+    func liberoReplacing(_ side: TeamSide, in motion: [AthleteID: Motion]) -> AthleteID? {
         let lineup = lineups[side.rawValue]
-        guard positions[lineup.libero] != nil else { return nil }
-        return rosters[side.rawValue].ids(.middle).first { positions[$0] == nil }
+        guard motion[lineup.libero] != nil else { return nil }
+        return rosters[side.rawValue].ids(.middle).first { motion[$0] == nil }
     }
 }
 
 // MARK: - Byte-stable coding
 
-/// `[AthleteID: Vec2]` would encode in hash-seeded iteration order, so equal
-/// states gave different bytes in different processes. `positions` is
-/// written as a list sorted by athlete instead; every other field is coded
-/// as the synthesized conformance would.
+/// `[AthleteID: Motion]` would encode in hash-seeded iteration order, so equal
+/// states gave different bytes in different processes. `motion` is written
+/// as a list sorted by athlete instead; every other field is coded as the
+/// synthesized conformance would.
 extension GameState {
     enum CodingKeys: String, CodingKey {
-        case tick, settings, rosters, lineups, score, rng, phase, ball, pending, positions
+        case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
         case touchesThisSide, rallyCount, lastFlightWasNetError
     }
 
-    struct PlacedAthlete: Codable {
+    struct MovingAthlete: Codable {
         var id: AthleteID
-        var spot: Vec2
+        var motion: Motion
     }
 
     public init(from decoder: any Decoder) throws {
@@ -155,8 +187,10 @@ extension GameState {
         phase = try c.decode(Phase.self, forKey: .phase)
         ball = try c.decodeIfPresent(Flight.self, forKey: .ball)
         pending = try c.decodeIfPresent(PendingContact.self, forKey: .pending)
-        let placed = try c.decode([PlacedAthlete].self, forKey: .positions)
-        positions = Dictionary(placed.map { ($0.id, $0.spot) }, uniquingKeysWith: { _, last in last })
+        let moving = try c.decode([MovingAthlete].self, forKey: .motion)
+        motion = Dictionary(moving.map { ($0.id, $0.motion) }, uniquingKeysWith: { _, last in last })
+        serveTick = try c.decode(Int.self, forKey: .serveTick)
+        lastTouch = try c.decodeIfPresent(AthleteID.self, forKey: .lastTouch)
         touchesThisSide = try c.decode(Int.self, forKey: .touchesThisSide)
         rallyCount = try c.decode(Int.self, forKey: .rallyCount)
         lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
@@ -173,10 +207,12 @@ extension GameState {
         try c.encode(phase, forKey: .phase)
         try c.encodeIfPresent(ball, forKey: .ball)
         try c.encodeIfPresent(pending, forKey: .pending)
-        let placed = positions
+        let moving = motion
             .sorted { ($0.key.team.rawValue, $0.key.index) < ($1.key.team.rawValue, $1.key.index) }
-            .map { PlacedAthlete(id: $0.key, spot: $0.value) }
-        try c.encode(placed, forKey: .positions)
+            .map { MovingAthlete(id: $0.key, motion: $0.value) }
+        try c.encode(moving, forKey: .motion)
+        try c.encode(serveTick, forKey: .serveTick)
+        try c.encodeIfPresent(lastTouch, forKey: .lastTouch)
         try c.encode(touchesThisSide, forKey: .touchesThisSide)
         try c.encode(rallyCount, forKey: .rallyCount)
         try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)

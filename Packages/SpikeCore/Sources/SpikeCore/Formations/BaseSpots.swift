@@ -144,6 +144,13 @@ public enum BaseSpots {
         }
     }
 
+    /// Base defense before the other team sets: the front row spread on the
+    /// net ready to block, the back row in perimeter base.
+    public static let base = PerimeterSpots(
+        leftFront: LocalSpot(d: 0.6, l: -3.0), middleFront: LocalSpot(d: 0.6, l: 0.0),
+        rightFront: LocalSpot(d: 0.6, l: 3.0), leftBack: LocalSpot(d: 6.5, l: -3.3),
+        middleBack: LocalSpot(d: 8.0, l: 0.0), rightBack: LocalSpot(d: 6.5, l: 3.3))
+
     // Against their left: our right-front sets the block on the line with the
     // middle closing; the left-front pulls off to about 3 m for tips; the
     // right back covers the line and tips behind the block; the middle back

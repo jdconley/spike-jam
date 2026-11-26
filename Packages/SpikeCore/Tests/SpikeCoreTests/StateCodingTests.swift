@@ -13,12 +13,12 @@ import Testing
     // Same contents, different insertion order and capacity, so a different
     // internal layout and iteration order.
     var b = a
-    var rebuilt: [AthleteID: Vec2] = [:]
+    var rebuilt: [AthleteID: Motion] = [:]
     rebuilt.reserveCapacity(512)
-    for (id, spot) in a.positions.sorted(by: { ($0.key.team.rawValue, $0.key.index) > ($1.key.team.rawValue, $1.key.index) }) {
-        rebuilt[id] = spot
+    for (id, m) in a.motion.sorted(by: { ($0.key.team.rawValue, $0.key.index) > ($1.key.team.rawValue, $1.key.index) }) {
+        rebuilt[id] = m
     }
-    b.positions = rebuilt
+    b.motion = rebuilt
     #expect(a == b)
 
     let encoder = JSONEncoder()

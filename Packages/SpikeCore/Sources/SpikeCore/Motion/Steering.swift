@@ -18,11 +18,17 @@ public enum Steering {
     /// One step of `dt` seconds. `tick` is the step being taken; it's only
     /// needed to honour `arriveByTick`, which is ignored without it.
     public static func advance(_ m: inout Motion, team: TeamSide, speedTrait: Float, dt: Double, tick: Int? = nil) {
-        let h = Float(dt)
-        let a = Tuning.accel
-        let cap = cap(m.gait, speedTrait: speedTrait)
         m.goal = clamp(m.goal, team: team)
+        integrate(&m, cap: cap(m.gait, speedTrait: speedTrait), dt: Float(dt), tick: tick)
+        let clamped = clamp(m.pos, team: team)
+        if clamped.x != m.pos.x { m.vel.x = 0 }
+        if clamped.z != m.pos.z { m.vel.z = 0 }
+        m.pos = clamped
+    }
 
+    /// The step itself, without the court clamps.
+    static func integrate(_ m: inout Motion, cap: Float, dt h: Float, tick: Int?) {
+        let a = Tuning.accel
         let toGoal = m.goal - m.pos
         let dist = toGoal.length
         var desired = Vec2.zero
@@ -43,18 +49,32 @@ public enum Steering {
         m.vel = m.vel + (dvl > maxDv ? dv * (maxDv / dvl) : dv)
         let speed = m.vel.length
         if speed > cap { m.vel = m.vel * (cap / speed) }
-
-        let next = m.pos + m.vel * h
-        let clamped = clamp(next, team: team)
-        if clamped.x != next.x { m.vel.x = 0 }
-        if clamped.z != next.z { m.vel.z = 0 }
-        m.pos = clamped
+        m.pos = m.pos + m.vel * h
 
         // Settle exactly on the goal once there and nearly still.
         if (m.goal - m.pos).length < 0.005 && m.vel.length < maxDv {
             m.pos = m.goal
             m.vel = .zero
         }
+    }
+
+    /// Seconds until steering brings `m` within `arriveRadius` of `to` at
+    /// speed cap `cap`, as fast as it can (no `arriveByTick` pacing). It runs
+    /// the integrator itself, so it agrees with `advance` exactly; past
+    /// `limit` seconds it gives up and returns `limit`.
+    public static func eta(_ m: Motion, to: Vec2, cap: Float, limit: Double = 4) -> Double {
+        var m = m
+        m.goal = to
+        m.arriveByTick = nil
+        let h = Float(Tuning.dt)
+        let steps = Int(limit * Double(Tuning.stepsPerSecond))
+        var n = 0
+        while (m.pos - to).length > Tuning.arriveRadius {
+            if n >= steps { return limit }
+            integrate(&m, cap: cap, dt: h, tick: nil)
+            n += 1
+        }
+        return Double(n) * Tuning.dt
     }
 
     /// The cruise speed of a speed-up, cruise, slow-down profile from rest
