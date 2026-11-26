@@ -35,5 +35,5 @@ func rosterShape(game: GameType, system: OffenseSystem) {
     #expect(six.athletes.enumerated().allSatisfy { $0.element.id == AthleteID(team: .away, index: $0.offset) })
     #expect(six.athletes.allSatisfy { !$0.name.isEmpty })
     let t = six.athletes.map(\.traits)
-    #expect(t.allSatisfy { [$0.serve, $0.pass, $0.set, $0.attack, $0.block, $0.defense, $0.speed].allSatisfy { (0.45...0.9).contains($0) } })
+    #expect(t.allSatisfy { [$0.serve, $0.pass, $0.set, $0.attack, $0.block, $0.defense, $0.speed].allSatisfy { (0...1).contains($0) } })
 }

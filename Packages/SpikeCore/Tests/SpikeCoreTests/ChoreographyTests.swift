@@ -131,8 +131,9 @@ let movementSoak = playMovementSoak()
 @Test func playersReallyMove() {
     // After the serve, the setter releases and the hitters switch: someone
     // on each team is moving within half a second.
+    // The first serve that stays in play (not a serve error).
     var s = GameState(settings: MatchSettings())
-    while !step(&s, inputs: []).contains(where: { if case .served = $0 { true } else { false } }) {}
+    while !(step(&s, inputs: []).contains(where: { if case .served = $0 { true } else { false } }) && s.pending?.kind == .receive) {}
     for _ in 0..<30 { _ = step(&s, inputs: []) }
     for side in TeamSide.allCases {
         let moving = s.motion.filter { $0.key.team == side && $0.value.vel.length > 1 }

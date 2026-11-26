@@ -5,7 +5,10 @@
 /// choreographer gave them, then applies the rules at those positions (so
 /// a serve is judged where everyone stands when it is struck), then sets
 /// new goals for what just happened.
-public func step(_ s: inout GameState, inputs: [PlayerInput]) -> [GameEvent] {
+///
+/// `touches` makes the human players' touches until plan 4 wires in real
+/// input; without one the AI makes every touch.
+public func step(_ s: inout GameState, inputs: [PlayerInput], touches: (any TouchSource)? = nil) -> [GameEvent] {
     s.tick += 1
     var events: [GameEvent] = []
     moveEveryone(&s)
@@ -18,13 +21,13 @@ public func step(_ s: inout GameState, inputs: [PlayerInput]) -> [GameEvent] {
             let timedOut = s.tick >= until + ticks(Tuning.formationWait)
             if timedOut { Choreographer.snapToFormation(&s) }
             if timedOut || Choreographer.formationReady(s) {
-                PlaceholderRally.serve(&s, &events)
+                Rally.serve(&s, &events, touches)
             }
         }
     case .rally:
         if let c = s.pending, s.tick >= c.tick {
             s.pending = nil
-            PlaceholderRally.resolve(c, &s, &events)
+            Rally.resolve(c, &s, &events, touches)
         }
     case .deadBall(let until):
         if s.tick >= until {

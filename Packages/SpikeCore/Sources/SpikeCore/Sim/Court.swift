@@ -26,9 +26,11 @@ public enum Court {
         return mirror(home, team)
     }
 
-    /// Where passes and digs go, for the setter.
+    /// Where passes and digs go, for the setter: 0.8 m off the net and
+    /// two-thirds of the way along it from the left antenna (6 m), between
+    /// net zones 6 and 7, as at the high level.
     public static func setterTarget(team: TeamSide) -> Vec3 {
-        mirror(Vec3(x: -0.8, y: 2.55, z: 0.5), team)
+        mirror(Vec3(x: -0.8, y: 2.55, z: 1.5), team)
     }
 
     /// Where a hitter in zone `z` contacts the set. Front row from the

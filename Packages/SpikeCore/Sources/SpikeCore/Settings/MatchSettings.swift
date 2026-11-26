@@ -15,7 +15,7 @@ public enum GameType: String, Codable, Sendable, CaseIterable {
     public var paceScale: Double {
         switch self {
         case .mens: 1.0
-        case .womens: 1.08
+        case .womens: 1.2
         }
     }
 }
@@ -42,10 +42,15 @@ public struct TeamSettings: Codable, Equatable, Sendable {
     public var system: OffenseSystem
     /// 1...6. Rotation 1 has the (first) setter in zone 1.
     public var startingRotation: Int
+    /// This team's AI level, overriding `MatchSettings.difficulty(for:)`.
+    /// nil (the default) follows the match. Bot-vs-bot tests use it to pit
+    /// levels against each other.
+    public var difficulty: Difficulty?
 
-    public init(system: OffenseSystem = .fiveOne, startingRotation: Int = 1) {
+    public init(system: OffenseSystem = .fiveOne, startingRotation: Int = 1, difficulty: Difficulty? = nil) {
         self.system = system
         self.startingRotation = startingRotation
+        self.difficulty = difficulty
     }
 }
 
@@ -57,14 +62,30 @@ public struct MatchSettings: Codable, Equatable, Sendable {
     /// Indexed by `TeamSide.rawValue`.
     public var teams: [TeamSettings] = [TeamSettings(), TeamSettings()]
     public var firstServer: TeamSide = .home
-    /// Hidden catch-up against the AI. Unused until plan 3.
+    /// Hidden catch-up against the AI (spec §4.9). It applies when exactly
+    /// one side has humans.
     public var catchUp = true
     public var seed: UInt64 = 1
+    /// The AI's level in solo games.
+    public var difficulty: Difficulty = .medium
+    /// The sides with at least one human player. Empty is bot against bot.
+    public var humanSides: Set<TeamSide> = []
+    /// "Keep it close": with humans on both sides, the catch-up nudges each
+    /// side's bots (spec §4.9). Off by default.
+    public var keepItClose = false
 
     public init() {}
 
     public func team(_ side: TeamSide) -> TeamSettings {
         teams[side.rawValue]
+    }
+
+    /// The level `side`'s bots play at: the team's own override if it has
+    /// one, medium for a human's AI teammates (so their mistakes stay fewer
+    /// than the opponents' at easier levels), and `difficulty` otherwise.
+    public func difficulty(for side: TeamSide) -> Difficulty {
+        if let d = team(side).difficulty { return d }
+        return humanSides.contains(side) ? .medium : difficulty
     }
 
     /// Human-readable problems; empty when the settings are playable.
@@ -79,5 +100,47 @@ public struct MatchSettings: Codable, Equatable, Sendable {
         if pointsToWin < 1 { problems.append("pointsToWin must be at least 1") }
         if winBy < 1 { problems.append("winBy must be at least 1") }
         return problems
+    }
+}
+
+// MARK: - Byte-stable coding
+
+/// `humanSides` would encode in hash order as a `Set`, and the settings are
+/// part of the shared state, so it is written as a sorted list. Every other
+/// field is coded as the synthesized conformance would.
+extension MatchSettings {
+    enum CodingKeys: String, CodingKey {
+        case gameType, tempo, pointsToWin, winBy, teams, firstServer, catchUp, seed
+        case difficulty, humanSides, keepItClose
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gameType = try c.decode(GameType.self, forKey: .gameType)
+        tempo = try c.decode(Tempo.self, forKey: .tempo)
+        pointsToWin = try c.decode(Int.self, forKey: .pointsToWin)
+        winBy = try c.decode(Int.self, forKey: .winBy)
+        teams = try c.decode([TeamSettings].self, forKey: .teams)
+        firstServer = try c.decode(TeamSide.self, forKey: .firstServer)
+        catchUp = try c.decode(Bool.self, forKey: .catchUp)
+        seed = try c.decode(UInt64.self, forKey: .seed)
+        difficulty = try c.decode(Difficulty.self, forKey: .difficulty)
+        humanSides = Set(try c.decode([TeamSide].self, forKey: .humanSides))
+        keepItClose = try c.decode(Bool.self, forKey: .keepItClose)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(gameType, forKey: .gameType)
+        try c.encode(tempo, forKey: .tempo)
+        try c.encode(pointsToWin, forKey: .pointsToWin)
+        try c.encode(winBy, forKey: .winBy)
+        try c.encode(teams, forKey: .teams)
+        try c.encode(firstServer, forKey: .firstServer)
+        try c.encode(catchUp, forKey: .catchUp)
+        try c.encode(seed, forKey: .seed)
+        try c.encode(difficulty, forKey: .difficulty)
+        try c.encode(humanSides.sorted { $0.rawValue < $1.rawValue }, forKey: .humanSides)
+        try c.encode(keepItClose, forKey: .keepItClose)
     }
 }

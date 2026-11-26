@@ -5,9 +5,8 @@ public enum Phase: Codable, Equatable, Sendable {
     case matchOver
 }
 
-/// Block arrives in plan 3.
 public enum TouchKind: String, Codable, Sendable {
-    case serve, receive, set, attack, dig
+    case serve, receive, set, attack, dig, block
 }
 
 /// The next thing that happens to the ball, on `tick`.
@@ -18,21 +17,32 @@ public struct PendingContact: Codable, Equatable, Sendable {
     public var team: TeamSide
     public var athlete: AthleteID?
     public var tick: Int
-    /// For a landing: why the point is won. The placeholder engine decides
-    /// the outcome when the ball is hit, so it is known in advance.
+    /// For a landing: why the point is won. The rally decides the outcome
+    /// of a ball nobody can reach when it's hit, so it is known in advance.
     public var reason: PointReason?
+    /// How playable the ball coming in is (`TouchContext.incomingQuality`).
+    public var quality: Float
+    /// How hard it comes in (`TouchContext.incomingPower`).
+    public var power: Float
+    /// Seconds the toucher has to spare getting there (`TouchContext.reachSlack`).
+    public var slack: Double
 
-    public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil) {
+    public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil,
+                quality: Float = 1, power: Float = 0, slack: Double = 1) {
         self.kind = kind
         self.team = team
         self.athlete = athlete
         self.tick = tick
         self.reason = reason
+        self.quality = quality
+        self.power = power
+        self.slack = slack
     }
 }
 
 public enum PointReason: String, Codable, Sendable {
-    case ace, serviceError, kill, attackError, handlingError
+    /// `kill` includes tools off the block; `block` is a stuff block.
+    case ace, serviceError, kill, attackError, handlingError, block
 }
 
 public enum GameEvent: Equatable, Sendable {
@@ -45,6 +55,42 @@ public enum GameEvent: Equatable, Sendable {
     /// drops (a serve or attack) or is fumbled (a set).
     case outOfReach(TouchKind, team: TeamSide)
     case matchWon(TeamSide)
+    /// The set is away to `hitter` for `call` (the set labels show it).
+    case setCall(AthleteID, PlayCall)
+    /// A touch went wrong this way (each has its own animation). It follows
+    /// the touch's `touched` event, or the attack's for a stuff block.
+    case erred(TouchKind, AthleteID, TouchError)
+    /// The hitter tips or rolls the attack instead of swinging. It follows
+    /// the attack's `touched` event.
+    case tipped(AthleteID)
+}
+
+/// What the rally remembers between touches that the AI and the
+/// choreographer read. Reset at each serve.
+public struct RallyNotes: Codable, Equatable, Sendable {
+    /// The quality of the pass or dig the team in possession is setting
+    /// from, which decides its live calls. 1 while the ball is on its way
+    /// to them, so hitters head for their called plays.
+    public var passQuality: Float
+    /// The call of the set in the air, if any.
+    public var play: PlayCall?
+    /// Each team's last two hitters, oldest first. Indexed by
+    /// `TeamSide.rawValue`.
+    public var recentHitters: [[AthleteID]]
+    /// Each team's read of the other's next hitter (`DefenseAI.read`), by
+    /// `TeamSide.rawValue`.
+    public var reads: [AthleteID?]
+    /// What happens to an attack if the block doesn't touch it: the dig or
+    /// the ball landing. Set while a block is pending.
+    public var afterBlock: PendingContact?
+
+    public init() {
+        passQuality = 1
+        play = nil
+        recentHitters = [[], []]
+        reads = [nil, nil]
+        afterBlock = nil
+    }
 }
 
 /// Empty until plan 4, so `step`'s signature is stable.
@@ -77,6 +123,9 @@ public struct GameState: Codable, Equatable, Sendable {
     /// net clearance; it costs one Bool, so it is kept in every build so the
     /// state's shape never differs between debug and release.
     public var lastFlightWasNetError: Bool
+    /// Each team's play calls, indexed by `TeamSide.rawValue`.
+    public var calls: [TeamCalls]
+    public var notes: RallyNotes
 
     public init(settings: MatchSettings) {
         self.settings = settings
@@ -100,6 +149,11 @@ public struct GameState: Codable, Equatable, Sendable {
         touchesThisSide = 0
         rallyCount = 0
         lastFlightWasNetError = false
+        let lineups = self.lineups
+        calls = TeamSide.allCases.map { side in
+            TeamCalls.defaults(lineup: lineups[side.rawValue], roster: rosters[side.rawValue], game: settings.gameType)
+        }
+        notes = RallyNotes()
         _ = refreshPositions()
     }
 
@@ -168,7 +222,7 @@ public struct GameState: Codable, Equatable, Sendable {
 extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
-        case touchesThisSide, rallyCount, lastFlightWasNetError
+        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes
     }
 
     struct MovingAthlete: Codable {
@@ -194,6 +248,8 @@ extension GameState {
         touchesThisSide = try c.decode(Int.self, forKey: .touchesThisSide)
         rallyCount = try c.decode(Int.self, forKey: .rallyCount)
         lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
+        calls = try c.decode([TeamCalls].self, forKey: .calls)
+        notes = try c.decode(RallyNotes.self, forKey: .notes)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -216,5 +272,7 @@ extension GameState {
         try c.encode(touchesThisSide, forKey: .touchesThisSide)
         try c.encode(rallyCount, forKey: .rallyCount)
         try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)
+        try c.encode(calls, forKey: .calls)
+        try c.encode(notes, forKey: .notes)
     }
 }

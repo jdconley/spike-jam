@@ -40,13 +40,62 @@ public enum RosterGenerator {
             let number = numbers.remove(at: rng.int(in: 0..<numbers.count))
             let tone = tones.remove(at: rng.int(in: 0..<tones.count))
             let height = rng.float(in: heightBand(position, gameType))
-            func trait() -> Float { rng.float(in: 0.45...0.9) }
-            let traits = Traits(serve: trait(), pass: trait(), set: trait(), attack: trait(),
-                                block: trait(), defense: trait(), speed: trait())
+            let traits = shapedTraits(position, rng: &rng)
             athletes.append(Athlete(id: AthleteID(team: team, index: i), name: name, number: number,
                                     position: position, heightM: height, skinTone: tone, traits: traits))
         }
         return Roster(athletes: athletes)
+    }
+
+    /// The mean traits of each position (Claude's numbers): setters set,
+    /// liberos pass and dig and never attack or block, middles block and hit
+    /// but pass little, outsides are all-round with a good pass, opposites
+    /// hit and block.
+    static func meanTraits(_ p: Position) -> Traits {
+        switch p {
+        case .setter:
+            Traits(serve: 0.62, pass: 0.58, set: 0.86, attack: 0.45, block: 0.5, defense: 0.62, speed: 0.66)
+        case .libero:
+            Traits(serve: 0.4, pass: 0.84, set: 0.45, attack: 0, block: 0, defense: 0.86, speed: 0.74)
+        case .middle:
+            Traits(serve: 0.56, pass: 0.38, set: 0.38, attack: 0.76, block: 0.84, defense: 0.45, speed: 0.58)
+        case .outside:
+            Traits(serve: 0.64, pass: 0.72, set: 0.42, attack: 0.72, block: 0.6, defense: 0.66, speed: 0.66)
+        case .opposite:
+            Traits(serve: 0.66, pass: 0.45, set: 0.42, attack: 0.8, block: 0.72, defense: 0.5, speed: 0.62)
+        }
+    }
+
+    /// The traits that make the position, which a personality never lowers.
+    static func signature(_ p: Position) -> Set<Int> {
+        switch p {
+        case .setter: [2]
+        case .libero: [1, 5]
+        case .middle: [4]
+        case .outside: [1]
+        case .opposite: [3]
+        }
+    }
+
+    /// Each trait drawn within ±0.12 of the position's mean, then one
+    /// personality: +0.15 on one random trait and −0.1 on another (never a
+    /// signature trait), clipped to 0...1. A libero's attack and block stay 0.
+    static func shapedTraits(_ p: Position, rng: inout SeededRNG) -> Traits {
+        let mean = meanTraits(p)
+        var v = [mean.serve, mean.pass, mean.set, mean.attack, mean.block, mean.defense, mean.speed]
+        for i in v.indices { v[i] += rng.float(in: -0.12...0.12) }
+        let up = rng.int(in: 0..<v.count)
+        let downs = v.indices.filter { $0 != up && !signature(p).contains($0) }
+        let down = downs[rng.int(in: 0..<downs.count)]
+        v[up] += 0.15
+        v[down] -= 0.1
+        v = v.map { min(max($0, 0), 1) }
+        var t = Traits(serve: v[0], pass: v[1], set: v[2], attack: v[3], block: v[4], defense: v[5], speed: v[6])
+        if p == .libero {
+            t.attack = 0
+            t.block = 0
+        }
+        return t
     }
 
     // Original, generated-sounding names. None is a real athlete.
