@@ -15,7 +15,7 @@ public enum GameType: String, Codable, Sendable, CaseIterable {
     public var paceScale: Double {
         switch self {
         case .mens: 1.0
-        case .womens: 1.08
+        case .womens: 1.2
         }
     }
 }

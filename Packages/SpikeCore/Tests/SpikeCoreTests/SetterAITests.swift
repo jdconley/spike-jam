@@ -156,7 +156,7 @@ private func park(_ s: inout GameState, defending: TeamSide, zones: [Float]) {
         park(&s, defending: team.other, zones: [1, 1, 9])
         let setter = s.lineups[team.rawValue].settingSetter(isServing: false)
         s.rosters[team.rawValue].athletes[setter.index].traits.set = setTrait
-        let opts = SetterAI.options(s, team: team, passQuality: 0.5, setter: setter)
+        let opts = SetterAI.options(s, team: team, passQuality: 0.85, setter: setter)
         let best = opts.max { $0.score < $1.score }!
         return (best.chance, opts.map(\.score))
     }
@@ -231,11 +231,9 @@ private func park(_ s: inout GameState, defending: TeamSide, zones: [Float]) {
 }
 
 @Test func setsFollowTheGame() {                                 // womensUsesSlide
+    // The 500-match runs of the rate tests (at least the plan's 200).
     func middleSets(_ game: GameType) -> [PlayCall] {
-        var settings = MatchSettings()
-        settings.gameType = game
-        settings.seed = 900
-        let stats = runParallel(settings, count: 200)
+        let stats = bandRuns[game]!
         let middle: Set<PlayCall> = [.one, .thirtyOne, .backOne, .slide]
         return stats.setCalls.filter { middle.contains($0.key) }.sorted { $0.value > $1.value }.map(\.key)
     }

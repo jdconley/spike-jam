@@ -31,7 +31,7 @@ public enum Choreographer {
             case .dig?:
                 dig(&s, us, c)
                 baseDefense(&s, them)
-            case .serve?:
+            case .serve?, .block?:
                 break
             case nil:
                 ballDropping(&s, c)
@@ -87,6 +87,7 @@ public enum Choreographer {
         let landing = t.local(ballEnd(s).xz)
         let passers = Formations.passers(t.lineup, roster: t.roster)
         let target = t.local(Court.setterTarget(team: t.side).xz)
+        let live = t.live(s)
         for (z, id) in t.court {
             if id == c.athlete {
                 go(&s, t, id, reach(t.local(s.motion[id]!.pos), landing, Tuning.passReach), .run)
@@ -99,7 +100,7 @@ public enum Choreographer {
                 if len > Tuning.passShadeMax { shade = LocalSpot(d: shade.d * Tuning.passShadeMax / len, l: shade.l * Tuning.passShadeMax / len) }
                 go(&s, t, id, LocalSpot(d: spot.d + shade.d, l: spot.l + shade.l), .shuffle)
             } else {
-                go(&s, t, id, t.approachStart(id), .run)
+                go(&s, t, id, t.approachStart(id, live), .run)
             }
         }
     }
@@ -113,7 +114,7 @@ public enum Choreographer {
     static func beforeTheSet(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         let contact = t.local(ballEnd(s).xz)
         if let setter = c.athlete { go(&s, t, setter, contact, .run) }
-        for (h, call) in t.live where h != c.athlete && call != .dump {
+        for (h, call) in t.live(s) where h != c.athlete && call != .dump {
             let attackTick = c.tick + ticks(PlayBook.spec(call).setDuration * s.settings.tempo.flightScale)
             approach(&s, t, h, PlayBook.approachStart(call), t.takeoff(call, s), attackTick: attackTick)
         }
@@ -124,7 +125,8 @@ public enum Choreographer {
     /// else covers the hitter.
     static func attack(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         guard let hitter = c.athlete, let ball = s.ball else { return }
-        let play = s.notes.play ?? t.live.first { $0.0 == hitter }?.1 ?? .four
+        let live = t.live(s)
+        let play = s.notes.play ?? live.first { $0.0 == hitter }?.1 ?? .four
         let takeoff = BaseSpots.takeoff(PlayBook.spec(play).lane, setPoint: ballEnd(s), team: t.side)
         approach(&s, t, hitter, PlayBook.approachStart(play), takeoff, attackTick: c.tick)
         // The jump peaks on the contact; a set quicker than half a jump
@@ -134,7 +136,7 @@ public enum Choreographer {
         s.motion[hitter]!.jump = Jump(startTick: start, durationTicks: 2 * (c.tick - start), height: Tuning.attackJumpHeight)
 
         let setter = s.lastTouch
-        let runs = t.live.filter { $0.0 != hitter && $0.0 != setter && $0.1 != .dump }
+        let runs = live.filter { $0.0 != hitter && $0.0 != setter && $0.1 != .dump }
         let decoys = runs.map(\.0)
         for (d, call) in runs {
             approach(&s, t, d, PlayBook.approachStart(call), t.takeoff(call, s), attackTick: c.tick)
@@ -177,10 +179,14 @@ public enum Choreographer {
     }
 
     /// Before the other team sets: blockers spread on the net, the back row
-    /// in base.
+    /// in base, both leaning toward the hitter the team reads.
     static func baseDefense(_ s: inout GameState, _ t: TeamView) {
+        let read = DefenseAI.readTarget(s, defending: t.side)
+        let defense = read == nil ? 0 : DefenseAI.averageDefense(s, t.side)
+        let base = read.map { DefenseAI.shift(BaseSpots.base, toward: $0, defense: defense) } ?? BaseSpots.base
         for (id, role) in t.roles where !airborne(s, id) {
-            let spot = BaseSpots.base[role]
+            var spot = base[role]
+            if role.isFront, let l = read { spot = DefenseAI.lean(spot, toward: l, defense: defense) }
             go(&s, t, id, spot, role.isFront ? transitionGait(t.local(s.motion[id]!.pos), spot) : .run)
         }
     }
@@ -192,7 +198,11 @@ public enum Choreographer {
         guard let hitter = c.athlete else { return }
         let attacker = TeamView(s, c.team)
         let lane = s.notes.play.map { PlayBook.spec($0).lane } ?? attacker.lane(hitter)
-        let p = BaseSpots.perimeter(against: lane)
+        // The back row shifts toward the read, right or wrong.
+        var p = BaseSpots.perimeter(against: lane)
+        if let l = DefenseAI.readTarget(s, defending: t.side) {
+            p = DefenseAI.shift(p, toward: l, defense: DefenseAI.averageDefense(s, t.side))
+        }
         let blockRoles = BaseSpots.blockers(against: lane)
         let block = BaseSpots.blockSpot(against: ballEnd(s), defending: t.side)
         for (id, role) in t.roles {
@@ -217,13 +227,14 @@ public enum Choreographer {
     static func dig(_ s: inout GameState, _ t: TeamView, _ c: PendingContact) {
         let landing = t.local(ballEnd(s).xz)
         let target = t.local(Court.setterTarget(team: t.side).xz)
+        let live = t.live(s)
         for (z, id) in t.court {
             if id == c.athlete {
                 go(&s, t, id, reach(t.local(s.motion[id]!.pos), landing, Tuning.digReach), .run)
             } else if id == t.setter {
                 go(&s, t, id, target, .run)
             } else if z.isFrontRow && !airborne(s, id) {
-                let start = t.approachStart(id)
+                let start = t.approachStart(id, live)
                 go(&s, t, id, start, transitionGait(t.local(s.motion[id]!.pos), start))
             }
         }
@@ -256,9 +267,7 @@ public enum Choreographer {
                    arriveBy: Int? = nil) {
         var spot = spot
         if id == t.libero { spot.d = max(spot.d, liberoMinDepth) }
-        s.motion[id]!.goal = t.world(spot)
-        s.motion[id]!.gait = gait
-        s.motion[id]!.arriveByTick = arriveBy
+        s.motion[id]!.retarget(t.world(spot), gait, arriveBy)
     }
 
     /// The libero stays behind the 3 m line.
@@ -328,9 +337,9 @@ struct TeamView {
     let serving: Bool
     /// The six on court, by zone.
     let court: [(zone: Zone, id: AthleteID)]
-    /// Who runs which play now: the live calls off the pass this team is
-    /// setting from, or the called plays while the ball is on its way.
-    let live: [(AthleteID, PlayCall)]
+    /// The pass quality this team's live calls are judged off: the pass it
+    /// is setting from, or 1 while the ball is on its way.
+    let passQuality: Float
 
     init(_ s: GameState, _ side: TeamSide) {
         self.side = side
@@ -340,7 +349,7 @@ struct TeamView {
         let l = s.lineups[side.rawValue], serves = s.isServing(side)
         court = Zone.allCases.map { ($0, l.occupant($0, isServing: serves)) }
         let setting = s.pending.map { $0.team == side && ($0.kind == .set || $0.kind == .attack) } ?? false
-        live = liveCalls(s, team: side, passQuality: setting ? s.notes.passQuality : 1)
+        passQuality = setting ? s.notes.passQuality : 1
     }
 
     var libero: AthleteID { lineup.libero }
@@ -355,9 +364,14 @@ struct TeamView {
 
     /// Where `id` starts an approach: for their live call if they have one,
     /// else for their default lane.
-    func approachStart(_ id: AthleteID) -> LocalSpot {
+    func approachStart(_ id: AthleteID, _ live: [(AthleteID, PlayCall)]) -> LocalSpot {
         if let call = live.first(where: { $0.0 == id && $0.1 != .dump })?.1 { return PlayBook.approachStart(call) }
         return BaseSpots.approachStart(lane(id))
+    }
+
+    /// Who runs which play now: the live calls off `passQuality`.
+    func live(_ s: GameState) -> [(AthleteID, PlayCall)] {
+        liveCalls(s, team: side, passQuality: passQuality)
     }
 
     /// Where a hitter takes off for `call`'s set.
@@ -387,6 +401,16 @@ struct TeamView {
             }
             return (id, role)
         }
+    }
+}
+
+extension Motion {
+    /// A new goal in one write, so the choreographer touches each player's
+    /// motion once per step.
+    mutating func retarget(_ goal: Vec2, _ gait: Gait, _ arriveBy: Int?) {
+        self.goal = goal
+        self.gait = gait
+        arriveByTick = arriveBy
     }
 }
 

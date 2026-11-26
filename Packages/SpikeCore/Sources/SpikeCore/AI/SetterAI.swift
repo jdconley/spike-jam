@@ -50,6 +50,11 @@ public enum SetterAI {
             if spec.tempo == .first && call != .dump {
                 score += Tuning.setterQuickBonus * max(0, passQuality - PlayBook.goodPass) / (1 - PlayBook.goodPass)
             }
+            // Off a poor pass the safe ball is the high one to a pin; a
+            // back-row attack needs a better set.
+            let poor = max(0, PlayBook.goodPass - passQuality) / PlayBook.goodPass
+            if call == .four || call == .five { score += Tuning.setterSafeBonus * poor }
+            if spec.lane.isBackRow { score -= Tuning.setterBackRowPenalty * poor }
             score -= Tuning.setterRepeatPenalty * Float(recent.filter { $0 == id }.count)
             opts.append(Option(hitter: id, call: call, score: score, chance: 0))
         }
@@ -161,17 +166,16 @@ public enum SetterAI {
     /// Slide, Go and Hut tempo outside, and Red. Setters dump rarely.
     static func habit(_ game: GameType, _ call: PlayCall) -> Float {
         switch (game, call) {
-        case (_, .dump): -1.4
-        case (.mens, .one): 0.45
-        case (.mens, .thirtyOne): 0.2
-        case (.mens, .pipe): 0.3
-        case (.mens, .bic): 0.25
-        case (.mens, .four), (.mens, .five): 0.15
-        case (.womens, .slide): 0.5
-        case (.womens, .go): 0.3
-        case (.womens, .hut): 0.15
-        case (.womens, .red): 0.3
-        case (.womens, .pipe): 0.05
+        case (_, .dump): -1.2
+        case (.mens, .one): 0.15
+        case (.mens, .thirtyOne): 0.05
+        case (.mens, .pipe): 0.1
+        case (.mens, .bic): 0.05
+        case (.mens, .four), (.mens, .five): 0.1
+        case (.womens, .slide): 0.2
+        case (.womens, .go): 0.15
+        case (.womens, .hut): 0.05
+        case (.womens, .red): 0.15
         case (_, .a): -0.4
         default: 0
         }

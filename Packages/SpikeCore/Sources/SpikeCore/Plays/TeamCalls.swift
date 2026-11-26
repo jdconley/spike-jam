@@ -27,11 +27,12 @@ public struct TeamCalls: Codable, Equatable, Sendable {
     /// the libero, a back-row middle or setter, and anyone off the court.
     public func call(for id: AthleteID, lineup: Lineup, roster: Roster, game: GameType, isServing: Bool) -> PlayCall? {
         guard let zone = lineup.zone(of: id, isServing: isServing) else { return nil }
-        let position = roster[id].position
-        if let own = byAthlete[id], TeamCalls.canRun(own, position, frontRow: zone.isFrontRow, system: lineup.system) {
-            return own
-        }
-        return TeamCalls.defaultCall(position, frontRow: zone.isFrontRow, system: lineup.system, game: game)
+        return call(for: id, position: roster[id].position, frontRow: zone.isFrontRow, system: lineup.system, game: game)
+    }
+
+    func call(for id: AthleteID, position: Position, frontRow: Bool, system: OffenseSystem, game: GameType) -> PlayCall? {
+        if let own = byAthlete[id], TeamCalls.canRun(own, position, frontRow: frontRow, system: system) { return own }
+        return TeamCalls.defaultCall(position, frontRow: frontRow, system: system, game: game)
     }
 
     /// Sets every on-court hitter the combo names, by position.
@@ -109,12 +110,13 @@ public func liveCalls(_ s: GameState, team: TeamSide, passQuality: Float) -> [(A
     for z in [Zone.z4, .z3, .z2, .z5, .z6, .z1] {
         let id = lineup.occupant(z, isServing: serving)
         guard id != setter, id != lineup.libero,
-              let call = s.calls[team.rawValue].call(for: id, lineup: lineup, roster: roster, game: game, isServing: serving),
+              let call = s.calls[team.rawValue].call(for: id, position: roster[id].position, frontRow: z.isFrontRow,
+                                                     system: lineup.system, game: game),
               let live = liveCall(call, position: roster[id].position, frontRow: z.isFrontRow, passQuality: passQuality)
         else { continue }
         out.append((id, live))
     }
-    if lineup.zone(of: setter, isServing: serving)?.isFrontRow == true && passQuality >= PlayBook.outOfSystemPass {
+    if lineup.zone(of: setter)?.isFrontRow == true && passQuality >= PlayBook.outOfSystemPass {
         out.append((setter, .dump))
     }
     return out

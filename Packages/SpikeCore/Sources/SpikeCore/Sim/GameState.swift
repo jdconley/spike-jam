@@ -5,9 +5,8 @@ public enum Phase: Codable, Equatable, Sendable {
     case matchOver
 }
 
-/// Block arrives in plan 3.
 public enum TouchKind: String, Codable, Sendable {
-    case serve, receive, set, attack, dig
+    case serve, receive, set, attack, dig, block
 }
 
 /// The next thing that happens to the ball, on `tick`.
@@ -18,21 +17,32 @@ public struct PendingContact: Codable, Equatable, Sendable {
     public var team: TeamSide
     public var athlete: AthleteID?
     public var tick: Int
-    /// For a landing: why the point is won. The placeholder engine decides
-    /// the outcome when the ball is hit, so it is known in advance.
+    /// For a landing: why the point is won. The rally decides the outcome
+    /// of a ball nobody can reach when it's hit, so it is known in advance.
     public var reason: PointReason?
+    /// How playable the ball coming in is (`TouchContext.incomingQuality`).
+    public var quality: Float
+    /// How hard it comes in (`TouchContext.incomingPower`).
+    public var power: Float
+    /// Seconds the toucher has to spare getting there (`TouchContext.reachSlack`).
+    public var slack: Double
 
-    public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil) {
+    public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil,
+                quality: Float = 1, power: Float = 0, slack: Double = 1) {
         self.kind = kind
         self.team = team
         self.athlete = athlete
         self.tick = tick
         self.reason = reason
+        self.quality = quality
+        self.power = power
+        self.slack = slack
     }
 }
 
 public enum PointReason: String, Codable, Sendable {
-    case ace, serviceError, kill, attackError, handlingError
+    /// `kill` includes tools off the block; `block` is a stuff block.
+    case ace, serviceError, kill, attackError, handlingError, block
 }
 
 public enum GameEvent: Equatable, Sendable {
@@ -47,6 +57,12 @@ public enum GameEvent: Equatable, Sendable {
     case matchWon(TeamSide)
     /// The set is away to `hitter` for `call` (the set labels show it).
     case setCall(AthleteID, PlayCall)
+    /// A touch went wrong this way (each has its own animation). It follows
+    /// the touch's `touched` event, or the attack's for a stuff block.
+    case erred(TouchKind, AthleteID, TouchError)
+    /// The hitter tips or rolls the attack instead of swinging. It follows
+    /// the attack's `touched` event.
+    case tipped(AthleteID)
 }
 
 /// What the rally remembers between touches that the AI and the
@@ -61,11 +77,19 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     /// Each team's last two hitters, oldest first. Indexed by
     /// `TeamSide.rawValue`.
     public var recentHitters: [[AthleteID]]
+    /// Each team's read of the other's next hitter (`DefenseAI.read`), by
+    /// `TeamSide.rawValue`.
+    public var reads: [AthleteID?]
+    /// What happens to an attack if the block doesn't touch it: the dig or
+    /// the ball landing. Set while a block is pending.
+    public var afterBlock: PendingContact?
 
     public init() {
         passQuality = 1
         play = nil
         recentHitters = [[], []]
+        reads = [nil, nil]
+        afterBlock = nil
     }
 }
 

@@ -56,7 +56,7 @@ func unreachableBallDrops(kind: TouchKind) {
     var events: [GameEvent] = []
     let before = s.score.points(attacking)
     let reason: PointReason = kind == .receive ? .ace : .kill
-    PlaceholderRally.incoming(kind, to: defending, spot: spot, from: from, duration: 0.3, dropReason: reason, &s, &events)
+    Rally.incoming(kind, to: defending, spot: spot, from: from, duration: 0.3, dropReason: reason, &s, &events)
     #expect(events.contains(.outOfReach(kind, team: defending)))
     #expect(s.pending?.kind == nil && s.pending?.team == attacking && s.pending?.reason == reason)
     for _ in 0..<120 { events += step(&s, inputs: []) }
@@ -77,7 +77,7 @@ func unreachableBallDrops(kind: TouchKind) {
     let spot = LocalFrame.toWorld(LocalSpot(d: 5.0, l: -3.0), team: defending)
     let from = LocalFrame.toWorld(LocalSpot(d: 1.0, l: 0), team: defending.other).atHeight(3.2)
     var events: [GameEvent] = []
-    PlaceholderRally.incoming(.dig, to: defending, spot: spot, from: from, duration: 0.6, dropReason: .kill, &s, &events)
+    Rally.incoming(.dig, to: defending, spot: spot, from: from, duration: 0.6, dropReason: .kill, &s, &events)
     #expect(events.isEmpty)
     #expect(s.pending?.kind == .dig && s.pending?.athlete == near)
 }
@@ -94,7 +94,7 @@ func unreachableBallDrops(kind: TouchKind) {
     let spot = LocalFrame.toWorld(LocalSpot(d: 1.5, l: -2.0), team: defending)
     let from = LocalFrame.toWorld(LocalSpot(d: 1.0, l: 0), team: defending.other).atHeight(3.2)
     var events: [GameEvent] = []
-    PlaceholderRally.incoming(.dig, to: defending, spot: spot, from: from, duration: 0.6, dropReason: .kill, &s, &events)
+    Rally.incoming(.dig, to: defending, spot: spot, from: from, duration: 0.6, dropReason: .kill, &s, &events)
     #expect(events.contains(.outOfReach(.dig, team: defending)))
 }
 
@@ -129,7 +129,7 @@ func unreachableBallDrops(kind: TouchKind) {
     #expect(stats.droppedForReach > 0)          // reach matters
     #expect(stats.droppedForReach < stats.rallies)
     #expect(stats.lateSetters < stats.rallies)
-    #expect(stats.aces + stats.serviceErrors + stats.kills + stats.attackErrors + stats.handlingErrors == stats.rallies)
+    #expect(stats.aces + stats.serviceErrors + stats.kills + stats.attackErrors + stats.handlingErrors + stats.blocks == stats.rallies)
 }
 
 @Test func etaIsZeroWhenThere() {

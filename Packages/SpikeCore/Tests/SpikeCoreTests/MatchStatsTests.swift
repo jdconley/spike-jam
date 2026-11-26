@@ -8,7 +8,7 @@ import Testing
     #expect(stats.sideOutRate > 0 && stats.sideOutRate < 1)
     #expect(stats.avgTouchesPerRally >= 1)
     // Every rally ends in exactly one way.
-    #expect(stats.aces + stats.serviceErrors + stats.kills + stats.attackErrors + stats.handlingErrors == stats.rallies)
+    #expect(stats.aces + stats.serviceErrors + stats.kills + stats.attackErrors + stats.handlingErrors + stats.blocks == stats.rallies)
     #expect(stats.avgMargin >= 2)
 }
 
