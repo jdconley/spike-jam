@@ -10,6 +10,12 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
+# The local packages. Only SpikeJamDev links them for now; SpikeJam is still the spike.
+packages:
+  SpikeCore:
+    path: Packages/SpikeCore
+  SpikeArt:
+    path: Packages/SpikeArt
 targets:
   SpikeJam:
     type: application
@@ -40,3 +46,50 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         UIStatusBarHidden: true
         GCSupportsControllerUserInteraction: true
+
+  # The real app, built up beside the spike so TestFlight keeps shipping the spike until the game
+  # is playable (plan 5's last task switches SpikeJam over to App/). Never uploaded.
+  SpikeJamDev:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: SpikeCore
+      - package: SpikeArt
+    scheme:
+      testTargets: [SpikeJamDevTests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.dev
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Spike Jam Dev
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_GCSupportsControllerUserInteraction: YES
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Spike Jam Dev
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        # ProMotion: let CADisplayLink ask for 120 Hz.
+        CADisableMinimumFrameDurationOnPhone: true
+        UIStatusBarHidden: true
+        GCSupportsControllerUserInteraction: true
+  SpikeJamDevTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AppTests]
+    dependencies:
+      - target: SpikeJamDev
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.dev.tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
