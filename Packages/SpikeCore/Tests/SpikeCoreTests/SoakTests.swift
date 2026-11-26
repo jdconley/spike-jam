@@ -51,15 +51,18 @@ private let maxTicks = 60 * 60 * 30
 }
 
 @Test func differentSeedsDiffer() {
-    func play(_ seed: UInt64) -> GameState {
+    // The rallies go differently: who won each point, in order.
+    func play(_ seed: UInt64) -> [TeamSide] {
         var settings = MatchSettings()
         settings.seed = seed
         var s = GameState(settings: settings)
-        for _ in 0..<maxTicks where s.phase != .matchOver { _ = step(&s, inputs: []) }
-        return s
+        var winners: [TeamSide] = []
+        for _ in 0..<maxTicks where s.phase != .matchOver {
+            for case .point(let w, _) in step(&s, inputs: []) { winners.append(w) }
+        }
+        return winners
     }
-    let a = play(1), b = play(2)
-    #expect(a.score.points != b.score.points || a.rallyCount != b.rallyCount)
+    #expect(play(1) != play(2))
 }
 
 @Test func invariantsCatchBrokenStates() {

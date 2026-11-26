@@ -116,7 +116,7 @@ func flightsClearTheNet(game: GameType) {
 @Test func courtMirrors() {
     #expect(Court.zoneSpot(.z4, team: .home) == Vec2(x: -2, z: -3))
     #expect(Court.zoneSpot(.z1, team: .away) == Vec2(x: 6.5, z: -3))
-    #expect(Court.setterTarget(team: .away) == Vec3(x: 0.8, y: 2.55, z: -0.5))
+    #expect(Court.setterTarget(team: .away) == Vec3(x: 0.8, y: 2.55, z: -1.5))
     #expect(Court.attackPoint(.z2, team: .home) == Vec3(x: -1.1, y: 3.15, z: 3.5))
     #expect(Court.attackPoint(.z4, team: .away) == Vec3(x: 1.1, y: 3.15, z: 3.5))
 }

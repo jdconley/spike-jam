@@ -40,7 +40,7 @@ public enum Formations {
     }
 
     // Each table is (d, l) for zones 1, 2, 3, 4, 5, 6. The setter target is
-    // at d 0.8, l 0.5. Passers stand at d 5.5–6.4 in three lanes.
+    // at d 0.8, l 1.5. Passers stand at d 5.5–6.4 in three lanes.
     // 6-2 rotations 1–3 and 4–6 use tables R1–R3, with S2/S1 as the front-row
     // "opposite" and the other setter setting.
     static let fiveOne: [[LocalSpot]] = [
