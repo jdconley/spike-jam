@@ -51,3 +51,68 @@ extension Tuning {
     /// Height of a pass or dig contact above the floor.
     public static let passContactHeight: Float = 0.8
 }
+
+// MARK: - Footwork (Claude's starting numbers; the builder tunes them on
+// device). Footwork may run faster than real life so the game stays FAST.
+extension Tuning {
+    /// Multiplies every gait's speed cap.
+    public static let footworkScale: Float = 1.25
+    /// Gait speed caps in m/s, before `footworkScale` and the speed trait.
+    public static func gaitSpeed(_ g: Gait) -> Float {
+        switch g {
+        case .stand: 2.0          // small adjustments while "standing"
+        case .run: 6.0
+        case .shuffle: 3.5
+        case .backpedal: 3.5
+        case .approach: 5.0
+        case .dive: 4.0
+        }
+    }
+    /// m/s², speeding up and slowing down alike.
+    public static let accel: Float = 16
+    /// Within this many metres of the goal a player has arrived.
+    public static let arriveRadius: Float = 0.08
+
+    /// Players stay on their own side and inside the free zone (team-local).
+    public static let minDepth: Float = 0.2
+    public static let maxDepth: Float = 12
+    public static let maxLateral: Float = 7.5
+}
+
+// MARK: - Choreography (Claude's starting numbers).
+extension Tuning {
+    /// The serve waits for everyone to be this close to their formation spot…
+    public static let formationTolerance: Float = 0.3
+    /// …for at most this many seconds; then stragglers snap onto it.
+    public static let formationWait: Double = 3.0
+
+    /// An attack jump: the peak meets the ball, so takeoff is half of it
+    /// (0.25 s) before the attack contact.
+    public static let attackJumpTicks = 30
+    public static let attackJumpHeight: Float = 0.9
+    /// A block jump starts 0.3 s before the attack contact and peaks on it.
+    public static let blockJumpTicks = 36
+    public static let blockJumpHeight: Float = 0.7
+    /// Hitters start the approach from their approach spot this long before
+    /// takeoff.
+    public static let approachTime: Double = 0.75
+    /// Coverage players crouch this far around the hitter's takeoff.
+    public static let coverageRadius: Float = 2.0
+
+    /// How close a passer or digger must get to the ball's floor point to
+    /// play it: arm's length for a pass, a lunge for a dig.
+    public static let passReach: Float = 0.5
+    public static let digReach: Float = 0.8
+    /// The passers who aren't taking the serve shade this share of the way
+    /// toward it, at most `passShadeMax` metres.
+    public static let passShade: Float = 0.35
+    public static let passShadeMax: Float = 1.2
+
+    /// A player who gets to the ball this many seconds after it arrives
+    /// still plays it.
+    public static let reachGrace: Double = 0.1
+    /// The best set a teammate bailing out a late setter can make.
+    public static let backupSetQuality: Float = 0.4
+    /// How far off the setter target the worst pass lands, along each axis.
+    public static let passScatter: Float = 3.0
+}

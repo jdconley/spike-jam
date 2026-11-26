@@ -103,9 +103,10 @@ func flightsClearTheNet(game: GameType) {
         }
         for side in TeamSide.allCases {
             let court = s.lineups[side.rawValue].onCourt(isServing: s.score.serving == side)
-            let onPositions = Set(s.positions.keys.filter { $0.team == side })
-            #expect(onPositions == Set(court.values))
-            for (z, id) in court { #expect(s.positions[id] == Court.zoneSpot(z, team: side)) }
+            let onCourt = Set(s.motion.keys.filter { $0.team == side })
+            #expect(onCourt == Set(court.values))
+            // Players move now, but always on their own side.
+            for id in court.values { #expect(LocalFrame.toLocal(s.motion[id]!.pos, team: side).d >= 0.2 - 1e-3) }
         }
         if s.phase == .matchOver { break }
     }
