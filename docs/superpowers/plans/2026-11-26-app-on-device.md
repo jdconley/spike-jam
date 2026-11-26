@@ -86,6 +86,8 @@ Everything in plans 1–4, plus:
 
 ### Task 2: The court scene and the cel-shaded players
 
+> **Update (2026-11-26):** the toon material, palette, jersey textures, player rig and court model were built early as the `Packages/SpikeArt` package, which doesn't depend on SpikeCore. In this task, add SpikeArt to `project.yml`, and have `CourtScene` and the player mapping use its API instead of creating `ToonMaterials.swift`, `JerseyTextures.swift`, `Palette.swift` and `PlayerRig.swift` in `App/Scene/`. The tests that move with them are already in SpikeArt. What's left here is mapping `GameState` to SpikeArt rigs and poses.
+
 **Files:**
 - Create: `App/Scene/CourtScene.swift`, for the court, net, antennas, lines, arena, lights and ball
 - Create: `App/Scene/PlayerRig.swift`, a low-poly figure built from meshes: torso, head, arms and legs, with simple procedural poses for stand, run, shuffle, approach, jump, dive, pass platform and set hands
