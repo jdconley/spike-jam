@@ -18,7 +18,8 @@ packages:
   SpikeNet:
     path: Packages/SpikeNet
 targets:
-  # The app: App/ on SpikeCore (the game) and SpikeArt (the placeholder look). TestFlight ships it.
+  # The app: App/ on SpikeCore (the game), SpikeArt (the placeholder look) and SpikeNet (online play).
+  # TestFlight ships it.
   SpikeJam:
     type: application
     platform: iOS
