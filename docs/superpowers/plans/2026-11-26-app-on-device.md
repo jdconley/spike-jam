@@ -235,3 +235,17 @@ Everything in plans 1–4, plus:
 - [ ] **Step 4: Open the PR.** JD merges it once CI passes and he has played it. The merge sends the build to TestFlight through the pipeline.
 
 - [ ] **Step 5: Commit** with `git commit -m "chore(app): device script and playtest 3 checklist"`.
+
+## As built: Tasks 3, 4 and 6
+
+The code is the reference; these are the places it differs from the text above.
+
+- **The switch is done.** The `SpikeJam` target (`com.conleychaos.spikejam`, "Spike Jam") builds `App/` with SpikeCore and SpikeArt and owns `SpikeJamTests` (`AppTests/`). `SpikeJamDev` and the spike's sources are gone; the icon's asset catalog moved to `App/Assets.xcassets`. TestFlight ships this app.
+- **`ClientLoop.send` keeps `PlayerInput`** (the human is in it); `MatchHost.send(_:at:)` wraps an `InputAction` for the local human. `MatchHost(mode:makeClient:)` takes a `ClientFactory` (`(MatchSettings, [HumanSlot]) -> any ClientLoop`), `MatchHost.localClient` by default: plan 6 passes a networked one.
+- **Solo** is one human, `MatchHost.soloHuman` (`HumanID(raw: 1)`) on home, picking BALL. `-demo autoplay` has no humans.
+- **Ownership:** `HumanOwnership` (`App/Feel/LocalOwnership.swift`) replaces `SideOwnership`. It reads the live `.window` and `.judged` events each frame, keeps the windows still open in the state (`pending`, `afterBlock`, the block window) plus the last two seconds' closed ones (haptics follow the drawn moment), and answers `next` (the window to act on), `aimWindow(in:)` (the pending contact is the human's serve or attack) and `controlled(in:)` (`controlled(by:)`).
+- **Touches:** `CourtARView` forwards touches with their own timestamps through `GameLoop.touch` to `TouchTranslator`. Pass, dig and block go out on the finger going down. A set touch waits to see if it's a swipe, and is sent as a tap (timed from the finger going down) four steps past the contact if it isn't. A block window's moment to act is half a jump before the attack. `HUDModel.setLabels` give the set labels' tap areas.
+- **The ring** runs on the live match time (`current.time + alpha × dt`, the clock inputs are stamped on), not the drawn one. While you aim, it sits on the aim spot.
+- **The huddle** draws the rotation as the 3 × 2 zone grid (front row at the net) rather than the serve-receive spots, which overlap in a stack at phone size.
+- **HUD layout:** `HUDLayout` puts the menu button, prompt and score in a top band and the switch strip in a bottom band. During an owned aim the camera keeps their court between the bands (`CameraDirector.aimBands`), and `hudClearsTheCourtYouAimOn` checks it on an SE and a 17 Pro (Review Focus 5). A human's serve clock (`pending.kind == .serve`) now gets the serve cam.
+- **Additions:** `-demo assist` (`DemoFinger`, a robot finger playing through the touch path), `ControllerInput` (A, left stick, shoulders, Y), a perfect-touch ding, and `scripts/device.sh`.

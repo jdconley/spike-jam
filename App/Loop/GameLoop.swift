@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import QuartzCore
 import SpikeCore
@@ -14,6 +15,8 @@ final class GameLoop {
 
     private(set) var client: any ClientLoop
     var onFrame: FrameHandler?
+    /// Where the court's touches go while the match runs.
+    var touches: TouchTranslator?
     private(set) var isPaused = false
     private(set) var isRunning = false
 
@@ -67,6 +70,22 @@ final class GameLoop {
     func replace(client: any ClientLoop) {
         self.client = client
         if isPaused { client.pause() } else { client.resume(at: clock()) }
+    }
+
+    /// A touch on the court, with its own timestamp (the touch clock is this loop's clock). While
+    /// paused nothing is translated, and a touch that was down is dropped.
+    func touch(_ phase: CourtARView.TouchPhase, _ p: CGPoint, t: Double, key: Int) {
+        guard let touches else { return }
+        guard !isPaused else {
+            touches.cancelled(touch: key)
+            return
+        }
+        switch phase {
+        case .began: touches.began(p, t: t, touch: key)
+        case .moved: touches.moved(p, t: t, touch: key)
+        case .ended: touches.ended(p, t: t, touch: key)
+        case .cancelled: touches.cancelled(touch: key)
+        }
     }
 
     /// One frame: advance to the clock's now and draw. The display link calls it; tests call it

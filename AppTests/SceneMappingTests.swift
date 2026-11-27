@@ -4,7 +4,7 @@ import simd
 import SpikeArt
 import SpikeCore
 import Testing
-@testable import SpikeJamDev
+@testable import SpikeJam
 
 @MainActor
 @Suite struct SceneMappingTests {
@@ -110,9 +110,13 @@ import Testing
         #expect(SceneMapping.ballPosition(nil, at: 10) == nil)
     }
 
-    @Test func noFireBeforePlanFour() {
-        // Whether or not GameState has `fire` yet, a fresh match has nobody on fire.
-        #expect(SceneMapping.onFire(in: GameState(settings: MatchSettings())).isEmpty)
+    @Test func onFireReadsTheState() {
+        var s = GameState(settings: MatchSettings())
+        #expect(SceneMapping.onFire(in: s).isEmpty)
+        let id = s.lineups[0].server()
+        s.fire[id] = FireState(killStreak: 3, onFire: true)
+        s.fire[s.lineups[1].server()] = FireState(killStreak: 2)
+        #expect(SceneMapping.onFire(in: s) == [id])
     }
 
     @Test func interpolationMeetsTheStates() {

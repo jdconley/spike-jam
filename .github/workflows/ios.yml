@@ -109,10 +109,9 @@ jobs:
       - name: SpikeArt tests (macOS)
         run: swift test --package-path Packages/SpikeArt
 
-  # SpikeJamDev, the real app growing beside the spike (App/ and AppTests/). Built and tested,
-  # never uploaded.
+  # The app (App/ and AppTests/): built for device and tested on the simulator.
   app-dev:
-    name: SpikeJamDev build and tests (iOS Simulator)
+    name: SpikeJam build and tests (iOS Simulator)
     runs-on: xcode-27
     timeout-minutes: 30
     steps:
@@ -125,9 +124,9 @@ jobs:
           unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
       - run: scripts/bootstrap.sh
-      - name: SpikeJamDev build for device (unsigned)
+      - name: SpikeJam build for device (unsigned)
         run: >
-          xcodebuild build -project SpikeJam.xcodeproj -scheme SpikeJamDev -configuration Release
+          xcodebuild build -project SpikeJam.xcodeproj -scheme SpikeJam -configuration Release
           -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO -quiet
       # The newest available iPhone simulator on an iOS 26 or later runtime.
       - name: Pick a simulator
@@ -151,9 +150,9 @@ jobs:
           ')
           if [ -z "$id" ]; then echo "::error::no iOS 26+ iPhone simulator"; exit 1; fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
-      - name: SpikeJamDev tests
+      - name: SpikeJam tests
         run: >
-          xcodebuild test -project SpikeJam.xcodeproj -scheme SpikeJamDev
+          xcodebuild test -project SpikeJam.xcodeproj -scheme SpikeJam
           -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" -quiet
 
   testflight:
@@ -247,7 +246,7 @@ jobs:
           if [ -n "$FROM" ] && git cat-file -e "$FROM^{commit}" 2>/dev/null; then
             # A push that doesn't change the app itself (scripts, docs, this workflow) uploads for
             # the internal testers only: the family never gets an identical build.
-            if git diff --quiet "$FROM" HEAD -- SpikeJam Packages project.yml; then
+            if git diff --quiet "$FROM" HEAD -- App Packages project.yml; then
               echo "no app change since $FROM: not sending this build to \"$GROUP\""
               exit 0
             fi

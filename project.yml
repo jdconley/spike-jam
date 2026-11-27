@@ -7,10 +7,9 @@ settings:
   base:
     DEVELOPMENT_TEAM: B222J9J7B8
     CODE_SIGN_STYLE: Automatic
-    SWIFT_VERSION: "5.0"
+    SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
-# The local packages. Only SpikeJamDev links them for now; SpikeJam is still the spike.
 packages:
   SpikeCore:
     path: Packages/SpikeCore
@@ -19,10 +18,18 @@ packages:
   SpikeNet:
     path: Packages/SpikeNet
 targets:
+  # The app: App/ on SpikeCore (the game), SpikeArt (the placeholder look) and SpikeNet (online play).
+  # TestFlight ships it.
   SpikeJam:
     type: application
     platform: iOS
-    sources: [SpikeJam]
+    sources: [App]
+    dependencies:
+      - package: SpikeCore
+      - package: SpikeArt
+      - package: SpikeNet
+    scheme:
+      testTargets: [SpikeJamTests]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam
@@ -37,7 +44,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_GCSupportsControllerUserInteraction: YES
     info:
-      path: SpikeJam/Info.plist
+      path: App/Info.plist
       properties:
         CFBundleDisplayName: Spike Jam
         # The build number comes from CURRENT_PROJECT_VERSION, which scripts/testflight.sh overrides.
@@ -45,54 +52,17 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # No encryption beyond what the OS provides: TestFlight asks no export compliance question.
         ITSAppUsesNonExemptEncryption: false
-        CADisableMinimumFrameDurationOnPhone: true
-        UIStatusBarHidden: true
-        GCSupportsControllerUserInteraction: true
-
-  # The real app, built up beside the spike so TestFlight keeps shipping the spike until the game
-  # is playable (plan 5's last task switches SpikeJam over to App/). Never uploaded.
-  SpikeJamDev:
-    type: application
-    platform: iOS
-    sources: [App]
-    dependencies:
-      - package: SpikeCore
-      - package: SpikeArt
-      - package: SpikeNet
-    scheme:
-      testTargets: [SpikeJamDevTests]
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.dev
-        SWIFT_VERSION: "6.0"
-        TARGETED_DEVICE_FAMILY: "1,2"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Spike Jam Dev
-        INFOPLIST_KEY_UIStatusBarHidden: YES
-        INFOPLIST_KEY_UIRequiresFullScreen: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_GCSupportsControllerUserInteraction: YES
-    info:
-      path: App/Info.plist
-      properties:
-        CFBundleDisplayName: Spike Jam Dev
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        ITSAppUsesNonExemptEncryption: false
         # ProMotion: let CADisplayLink ask for 120 Hz.
         CADisableMinimumFrameDurationOnPhone: true
         UIStatusBarHidden: true
         GCSupportsControllerUserInteraction: true
-  SpikeJamDevTests:
+  SpikeJamTests:
     type: bundle.unit-test
     platform: iOS
     sources: [AppTests]
     dependencies:
-      - target: SpikeJamDev
+      - target: SpikeJam
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.dev.tests
-        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.conleychaos.spikejam.tests
         GENERATE_INFOPLIST_FILE: YES

@@ -2,7 +2,7 @@ import Foundation
 import simd
 import SpikeCore
 import Testing
-@testable import SpikeJamDev
+@testable import SpikeJam
 
 /// Landscape viewports: an iPad (4:3), an iPhone SE (667×375) and an iPhone 17 Pro (874×402).
 private let aspects: [Float] = [4.0 / 3.0, 667.0 / 375.0, 874.0 / 402.0]
@@ -26,10 +26,10 @@ private func play(local: TeamSide, seed: UInt64, seconds: Double, _ visit: (Game
     /// projects inside the viewport, on every screen shape.
     @Test func aimKeepsOpponentCourtVisible() {
         for local in TeamSide.allCases {
-            let ownership = SideOwnership(localSide: local)
-            let director = CameraDirector(ownership: ownership)
+            let director = CameraDirector()
             var seen: [AimWindow: Int] = [:]
-            play(local: local, seed: 7, seconds: 150) { s, events in
+            playSolo(local: local, seed: 7, seconds: 150) { s, events, ownership in
+                director.ownership = ownership
                 guard let window = ownership.aimWindow(in: s) else { return }
                 seen[window, default: 0] += 1
                 for aspect in aspects {
@@ -49,10 +49,42 @@ private func play(local: TeamSide, seed: UInt64, seconds: Double, _ visit: (Game
         }
     }
 
+    /// Review Focus 5: on an SE and a 17 Pro, the HUD's fixed pieces (the menu button, prompt,
+    /// score and switch strip) never cover the court you aim on during an owned serve or attack.
+    @Test func hudClearsTheCourtYouAimOn() {
+        for layout in phoneLayouts {
+            let director = CameraDirector()
+            director.aspect = Float(layout.size.width / layout.size.height)
+            director.aimBands = layout.aimBands
+            var checked = 0
+            playSolo(seed: 13, seconds: 150) { s, events, ownership in
+                director.ownership = ownership
+                guard let window = ownership.aimWindow(in: s) else { return }
+                let view = ScreenProjector(shot: director.shot(for: s, events: events), size: layout.size)
+                let corners = CameraDirector.courtCorners(.away).compactMap { view.point($0) }
+                guard corners.count == 4 else {
+                    Issue.record("\(window): a corner is behind the camera")
+                    return
+                }
+                checked += 1
+                // Their court lies between the bands, so no fixed rect (all in the bands) touches it.
+                for c in corners {
+                    #expect(c.y > HUDLayout.topBand && c.y < layout.stripRect.minY, "\(window) \(layout.size): \(c)")
+                    #expect(c.x >= 0 && c.x <= layout.size.width)
+                }
+                let top = corners.map(\.y).min()!, bottom = corners.map(\.y).max()!
+                for r in layout.fixedRects {
+                    #expect(r.maxY <= top || r.minY >= bottom, "\(r) overlaps the court \(top)...\(bottom)")
+                }
+            }
+            #expect(checked > 100)
+        }
+    }
+
     /// Spec §4.4: during `.preServe` the camera stands behind the server, from the serving team's
     /// side, whichever team serves.
     @Test func serveCamBehindServer() {
-        let director = CameraDirector(ownership: SideOwnership(localSide: .home))
+        let director = CameraDirector()
         var served: Set<TeamSide> = []
         play(local: .home, seed: 3, seconds: 150) { s, events in
             guard case .preServe = s.phase else { return }
@@ -74,7 +106,7 @@ private func play(local: TeamSide, seed: UInt64, seconds: Double, _ visit: (Game
 
     /// Off the aimed touches the camera goes wide, and a kill gets the punch-in on its landing.
     @Test func shotKinds() {
-        let director = CameraDirector(ownership: SideOwnership(localSide: .home))
+        let director = CameraDirector()
         var kinds: Set<String> = []
         play(local: .home, seed: 11, seconds: 150) { s, events in
             let pick = director.pick(s, events)
@@ -89,7 +121,7 @@ private func play(local: TeamSide, seed: UInt64, seconds: Double, _ visit: (Game
 
     /// The eased camera cuts to the serve and otherwise moves smoothly: no frame jumps far.
     @Test func cameraEasesBetweenShots() {
-        let director = CameraDirector(ownership: SideOwnership(localSide: .home))
+        let director = CameraDirector()
         var last: CameraShot?
         var lastKind = CameraDirector.Kind.wide
         play(local: .home, seed: 5, seconds: 60) { s, events in
@@ -175,21 +207,59 @@ private func play(local: TeamSide, seed: UInt64, seconds: Double, _ visit: (Game
         #expect(Haptics.pulse(kind: .attack, power: 1, grade: .perfect).intensity <= 1)
     }
 
+    /// A haptic for each touch you own, with the character of its timing grade; none for
+    /// theirs; a heavy one on kills and stuffs.
     @Test func hapticsOnlyForYourTouchesAndHeavyForKills() {
-        let s = GameState(settings: MatchSettings())
-        let mine = s.lineups[0].server(), theirs = s.lineups[1].server()
+        let rig = WindowRig()
+        let mine = rig.home(.z1), theirs = rig.s.lineups[1].server()
+        let w = rig.open(.receive, 3, athlete: mine)
         let events = [
-            FeltEvent(event: .touched(.receive, mine, quality: 0.9)),
+            FeltEvent(event: .judged(w.id, .perfect)),
+            FeltEvent(event: .touched(.receive, mine, quality: 0.2)),
             FeltEvent(event: .touched(.receive, theirs, quality: 0.9)),
             FeltEvent(event: .point(.home, .kill)),
             FeltEvent(event: .point(.away, .block)),
         ]
-        let pulses = Haptics.pulses(for: events, ownership: SideOwnership(localSide: .home), in: s)
+        let pulses = Haptics.pulses(for: events, ownership: rig.ownership, in: rig.s)
         #expect(pulses.count == 3)
+        // Graded by the timing (perfect), not the quality the touch came out at.
+        #expect(pulses[0].style == .rigid)
         #expect(pulses[1] == Haptics.Pulse(style: .heavy, intensity: 1))
         #expect(pulses[2].style == .heavy && pulses[2].intensity < 1)
         // Nobody playing, no haptics.
-        #expect(Haptics.pulses(for: events, ownership: SideOwnership(localSide: nil), in: s).isEmpty)
+        #expect(Haptics.pulses(for: events, ownership: HumanOwnership.nobody, in: rig.s).isEmpty)
+        // The ding for a perfect touch of yours.
+        #expect(Sounds.cues(for: [events[0]], ownership: rig.ownership) == [.perfect])
+        #expect(Sounds.cues(for: [events[0]]) == [])
+    }
+
+    /// Ownership follows the open windows: a window is yours while its contact is still coming,
+    /// and stays known for a moment after (for the haptics of the drawn moment).
+    @Test func ownershipFollowsWindows() {
+        let rig = WindowRig()
+        let a = rig.home(.z4)
+        #expect(rig.ownership.aimWindow(in: rig.s) == nil)
+        let w = rig.open(.attack, 4, athlete: a)
+        #expect(w.athlete == a)
+        #expect(rig.ownership.aimWindow(in: rig.s) == .attack)
+        #expect(rig.ownership.owns(a, in: rig.s))
+        #expect(!rig.ownership.owns(rig.home(.z1), in: rig.s))
+        rig.closeAll()
+        #expect(rig.ownership.next == nil)
+        #expect(rig.ownership.window(w.id)?.closedTick == rig.s.tick)
+        #expect(rig.ownership.owns(a, in: rig.s))
+        rig.wait(Int(HumanOwnership.recentSeconds * 60) + 2)
+        #expect(!rig.ownership.owns(a, in: rig.s))
+        // The serve's window comes again with the toss's top: the toss is up.
+        let serve = rig.open(.serve, 5, athlete: rig.s.lineups[0].server(), inTicks: 300)
+        #expect(!serve.tossed)
+        #expect(rig.ownership.aimWindow(in: rig.s) == .serve)
+        rig.ownership.observe([.window(serve.id, .serve, owner: soloHuman, contactTick: rig.s.tick + 33)], in: rig.s)
+        #expect(rig.ownership.window(serve.id)?.tossed == true)
+        #expect(rig.ownership.window(serve.id)?.contactTick == rig.s.tick + 33)
+        // Someone else's window isn't ours.
+        rig.ownership.observe([.window(ContactID(raw: 77), .dig, owner: HumanID(raw: 2), contactTick: 0)], in: rig.s)
+        #expect(rig.ownership.window(ContactID(raw: 77)) == nil)
     }
 
     @Test func soundCues() {

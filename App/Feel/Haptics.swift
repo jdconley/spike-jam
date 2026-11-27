@@ -1,13 +1,22 @@
 import SpikeCore
 import UIKit
 
-/// How a touch went, for the feel layer: until plan 4's timing grades, the touch quality SpikeCore
-/// reports, banded the way the HUD will name it.
+/// How a touch went, for the feel layer: the local player's timing grade when SpikeCore judged
+/// it, else the touch quality it reports, banded the same way.
 enum TouchGrade: Equatable, Sendable {
     case perfect, good, okay, poor
 
     init(quality q: Float) {
         self = q >= 0.85 ? .perfect : q >= 0.6 ? .good : q >= 0.3 ? .okay : .poor
+    }
+
+    init(_ g: Grade) {
+        self = switch g {
+        case .perfect: .perfect
+        case .good: .good
+        case .early, .late: .okay
+        case .wayEarly, .wayLate, .miss: .poor
+        }
     }
 }
 
@@ -53,20 +62,32 @@ final class Haptics {
         return Pulse(style: style, intensity: min(1, base + 0.45 * power + gradeBoost))
     }
 
-    /// The pulses `events` call for: one per touch the local player owns, and a heavy one when a
-    /// kill or a stuff ends a rally the local team played (full strength when it's their point).
+    /// The pulses `events` call for: one per touch the local player owns, graded by its timing
+    /// (`judged`) when it was timed, a light one for their block jump, and a heavy one when a kill
+    /// or a stuff ends a rally the local team played (full strength when it's their point).
     static func pulses(for events: [FeltEvent], ownership: any LocalOwnership, in s: GameState) -> [Pulse] {
         guard let local = ownership.localSide else { return [] }
+        let windows = ownership as? HumanOwnership
         var out: [Pulse] = []
+        // A judged grade goes with the touch that follows it, by athlete.
+        var judged: [AthleteID: Grade] = [:]
         for e in events {
             switch e.event {
+            case .judged(let id, let grade):
+                guard let w = windows?.window(id), let athlete = w.athlete else { break }
+                if w.kind == .block {
+                    out.append(pulse(kind: .block, power: 0.2, grade: TouchGrade(grade)))
+                } else {
+                    judged[athlete] = grade
+                }
             case .served(let id) where ownership.owns(id, in: s):
-                // The serve has no quality of its own yet: a good contact, as hard as it flies.
+                // A float isn't timed: a good contact, as hard as it flies.
                 let power = TouchPower.of(.serve, incoming: e.incoming, outgoing: e.outgoing)
-                out.append(pulse(kind: .serve, power: power, grade: .good))
+                out.append(pulse(kind: .serve, power: power, grade: judged.removeValue(forKey: id).map(TouchGrade.init) ?? .good))
             case .touched(let kind, let id, let quality) where ownership.owns(id, in: s):
                 let power = TouchPower.of(kind, incoming: e.incoming, outgoing: e.outgoing)
-                out.append(pulse(kind: kind, power: power, grade: TouchGrade(quality: quality)))
+                let grade = judged.removeValue(forKey: id).map(TouchGrade.init) ?? TouchGrade(quality: quality)
+                out.append(pulse(kind: kind, power: power, grade: grade))
             case .point(let winner, let reason) where reason == .kill || reason == .block:
                 out.append(Pulse(style: .heavy, intensity: winner == local ? 1 : 0.7))
             default:

@@ -1,7 +1,7 @@
 import SpikeCore
 import SwiftUI
 
-/// Spike Jam Dev: the real app, growing beside the spike until it is playable (plan 5).
+/// Spike Jam: an arcade volleyball game on SpikeCore (the rules) and SpikeArt (the look).
 @main
 struct SpikeJamApp: App {
     let options = LaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -9,17 +9,17 @@ struct SpikeJamApp: App {
     var body: some SwiftUI.Scene {
         WindowGroup {
             RootView(launch: options)
-                .ignoresSafeArea()
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
         }
     }
 }
 
-/// What the launch arguments ask for. `-demo autoplay` opens straight into an all-bot match, and
-/// `-demo solo` straight into a solo match with the default picks, skipping the start screen.
+/// What the launch arguments ask for. `-demo autoplay` opens straight into an all-bot match,
+/// `-demo solo` straight into a solo match with the default picks, skipping the start screen, and
+/// `-demo assist` into a solo match a robot finger plays through the touch path.
 struct LaunchOptions: Equatable {
-    enum Demo: String { case autoplay, solo }
+    enum Demo: String { case autoplay, solo, assist }
 
     var demo: Demo?
 
@@ -44,6 +44,7 @@ struct RootView: View {
         let mode: MatchMode? = switch launch.demo {
         case .autoplay: .autoplay
         case .solo: .solo(StartChoices().matchSettings(seed: 1))
+        case .assist: .assist(StartChoices().matchSettings(seed: 1))
         case nil: nil
         }
         _match = State(initialValue: mode.map { Match(mode: $0) })

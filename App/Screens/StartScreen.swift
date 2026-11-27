@@ -100,7 +100,7 @@ struct StartScreen: View {
             .font(.system(size: 64, weight: .black).italic())
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.5), radius: 0, x: 4, y: 4)
-            Text("DEV BUILD")
+            Text("ARCADE VOLLEYBALL")
                 .font(.system(size: 12, weight: .heavy))
                 .tracking(2)
                 .foregroundStyle(.white.opacity(0.5))
