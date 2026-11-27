@@ -2,6 +2,9 @@ public enum Phase: Codable, Equatable, Sendable {
     case preServe(untilTick: Int)
     case rally
     case deadBall(untilTick: Int)
+    /// Between the dead ball and the next serve when humans play: picks and
+    /// calls (spec §4.3). It runs to `untilTick` whatever anyone does.
+    case huddle(untilTick: Int)
     case matchOver
 }
 
@@ -26,9 +29,14 @@ public struct PendingContact: Codable, Equatable, Sendable {
     public var power: Float
     /// Seconds the toucher has to spare getting there (`TouchContext.reachSlack`).
     public var slack: Double
+    /// Numbered as the flight toward it starts (`ContactID.none` until then).
+    public var id: ContactID
+    /// The human who plays this touch, decided once as the flight toward it
+    /// starts (spec §5.3); nil when the AI plays it.
+    public var owner: HumanID?
 
     public init(kind: TouchKind?, team: TeamSide, athlete: AthleteID?, tick: Int, reason: PointReason? = nil,
-                quality: Float = 1, power: Float = 0, slack: Double = 1) {
+                quality: Float = 1, power: Float = 0, slack: Double = 1, id: ContactID = .none, owner: HumanID? = nil) {
         self.kind = kind
         self.team = team
         self.athlete = athlete
@@ -37,6 +45,8 @@ public struct PendingContact: Codable, Equatable, Sendable {
         self.quality = quality
         self.power = power
         self.slack = slack
+        self.id = id
+        self.owner = owner
     }
 }
 
@@ -57,6 +67,15 @@ public enum GameEvent: Equatable, Sendable {
     case matchWon(TeamSide)
     /// The set is away to `hitter` for `call` (the set labels show it).
     case setCall(AthleteID, PlayCall)
+    /// A human's touch is coming: the flight toward contact `id` started,
+    /// and `owner` plays it at `contactTick` (the serve's is the toss's top
+    /// once it's tossed, so it comes again then). Inputs for it name `id`.
+    case window(ContactID, TouchKind, owner: HumanID, contactTick: Int)
+    /// How a human's touch was timed. Every window gets one, except a float
+    /// serve, which isn't timed.
+    case judged(ContactID, Grade)
+    /// `athlete` caught fire (`on`) or cooled off (spec §4.4).
+    case fire(AthleteID, on: Bool)
     /// A touch went wrong this way (each has its own animation). It follows
     /// the touch's `touched` event, or the attack's for a stuff block.
     case erred(TouchKind, AthleteID, TouchError)
@@ -80,22 +99,54 @@ public struct RallyNotes: Codable, Equatable, Sendable {
     /// Each team's read of the other's next hitter (`DefenseAI.read`), by
     /// `TeamSide.rawValue`.
     public var reads: [AthleteID?]
+    /// A human's read for their side this rally, which overrides the AI's;
+    /// the last one wins. By `TeamSide.rawValue`.
+    public var humanReads: [AthleteID?]
     /// What happens to an attack if the block doesn't touch it: the dig or
     /// the ball landing. Set while a block is pending.
     public var afterBlock: PendingContact?
+    /// A human's block against the set in the air, from the set until the
+    /// attack crosses the net.
+    public var block: BlockWindow?
+    /// Who made the rally's latest attack, for the kill streaks.
+    public var lastAttacker: AthleteID?
 
     public init() {
         passQuality = 1
         play = nil
         recentHitters = [[], []]
         reads = [nil, nil]
+        humanReads = [nil, nil]
         afterBlock = nil
+        block = nil
+        lastAttacker = nil
     }
 }
 
-/// Empty until plan 4, so `step`'s signature is stable.
-public struct PlayerInput: Codable, Equatable, Sendable {
-    public init() {}
+/// A human's block (spec §4.2): it opens as the other side's set leaves the
+/// setter's hands, and the owner's tap jumps their blocker at once. The
+/// jump's peak is judged against the attack.
+public struct BlockWindow: Codable, Equatable, Sendable {
+    /// The block contact's number.
+    public var id: ContactID
+    public var owner: HumanID
+    /// The blocker the owner jumps with: the one they control, or for "ball"
+    /// the one who lines up on the ball.
+    public var athlete: AthleteID
+    /// The attack the block is against, and its tick.
+    public var attack: ContactID
+    public var attackTick: Int
+    /// The jump's grade once they've jumped.
+    public var grade: Grade?
+
+    public init(id: ContactID, owner: HumanID, athlete: AthleteID, attack: ContactID, attackTick: Int, grade: Grade? = nil) {
+        self.id = id
+        self.owner = owner
+        self.athlete = athlete
+        self.attack = attack
+        self.attackTick = attackTick
+        self.grade = grade
+    }
 }
 
 /// The whole match as one value (spec §5.2).
@@ -126,9 +177,29 @@ public struct GameState: Codable, Equatable, Sendable {
     /// Each team's play calls, indexed by `TeamSide.rawValue`.
     public var calls: [TeamCalls]
     public var notes: RallyNotes
+    /// The humans playing, in the order they joined. Empty is bot against bot.
+    public var humans: [HumanSlot]
+    /// The number the next contact gets.
+    public var nextContactID: ContactID
+    /// Touch inputs waiting for the contact they're for, in arrival order.
+    public var inputBuffer: [PlayerInput]
+    /// Who owned each side's latest human contact, by `TeamSide.rawValue`:
+    /// two "ball" humans take turns from it.
+    public var lastToucherHuman: [HumanID?]
+    /// Streaks toward on fire, for the athletes who have one going.
+    public var fire: [AthleteID: FireState]
 
-    public init(settings: MatchSettings) {
+    /// A match. With `humans`, their sides count as human sides
+    /// (`MatchSettings.humanSides`).
+    public init(settings: MatchSettings, humans: [HumanSlot] = []) {
+        var settings = settings
+        settings.humanSides.formUnion(humans.map(\.team))
         self.settings = settings
+        self.humans = humans
+        nextContactID = ContactID(raw: 1)
+        inputBuffer = []
+        lastToucherHuman = [nil, nil]
+        fire = [:]
         var rng = SeededRNG(seed: settings.seed)
         let rosters = TeamSide.allCases.map { side in
             RosterGenerator.make(team: side, gameType: settings.gameType, system: settings.team(side).system, rng: &rng)
@@ -140,7 +211,10 @@ public struct GameState: Codable, Equatable, Sendable {
         self.rng = rng
         score = Score(settings: settings)
         tick = 0
-        phase = .preServe(untilTick: Int(Tuning.serveDelay * Double(Tuning.stepsPerSecond)))
+        // With humans the match opens with a huddle (picks, calls and team
+        // settings); bots go straight to the serve.
+        phase = humans.isEmpty ? .preServe(untilTick: Int(Tuning.serveDelay * Double(Tuning.stepsPerSecond)))
+            : .huddle(untilTick: nearestTicks(Tuning.huddleSeconds))
         ball = nil
         pending = nil
         motion = [:]
@@ -222,7 +296,13 @@ public struct GameState: Codable, Equatable, Sendable {
 extension GameState {
     enum CodingKeys: String, CodingKey {
         case tick, settings, rosters, lineups, score, rng, phase, ball, pending, motion, serveTick, lastTouch
-        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes
+        case touchesThisSide, rallyCount, lastFlightWasNetError, calls, notes, humans, nextContactID
+        case inputBuffer, lastToucherHuman, fire
+    }
+
+    struct Streak: Codable {
+        var id: AthleteID
+        var fire: FireState
     }
 
     struct MovingAthlete: Codable {
@@ -250,6 +330,12 @@ extension GameState {
         lastFlightWasNetError = try c.decode(Bool.self, forKey: .lastFlightWasNetError)
         calls = try c.decode([TeamCalls].self, forKey: .calls)
         notes = try c.decode(RallyNotes.self, forKey: .notes)
+        humans = try c.decode([HumanSlot].self, forKey: .humans)
+        nextContactID = try c.decode(ContactID.self, forKey: .nextContactID)
+        inputBuffer = try c.decode([PlayerInput].self, forKey: .inputBuffer)
+        lastToucherHuman = try c.decode([HumanID?].self, forKey: .lastToucherHuman)
+        let streaks = try c.decode([Streak].self, forKey: .fire)
+        fire = Dictionary(streaks.map { ($0.id, $0.fire) }, uniquingKeysWith: { _, last in last })
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -274,5 +360,13 @@ extension GameState {
         try c.encode(lastFlightWasNetError, forKey: .lastFlightWasNetError)
         try c.encode(calls, forKey: .calls)
         try c.encode(notes, forKey: .notes)
+        try c.encode(humans, forKey: .humans)
+        try c.encode(nextContactID, forKey: .nextContactID)
+        try c.encode(inputBuffer, forKey: .inputBuffer)
+        try c.encode(lastToucherHuman, forKey: .lastToucherHuman)
+        let streaks = fire
+            .sorted { ($0.key.team.rawValue, $0.key.index) < ($1.key.team.rawValue, $1.key.index) }
+            .map { Streak(id: $0.key, fire: $0.value) }
+        try c.encode(streaks, forKey: .fire)
     }
 }

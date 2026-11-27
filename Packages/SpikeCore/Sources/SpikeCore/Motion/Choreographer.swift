@@ -8,7 +8,7 @@
 public enum Choreographer {
     public static func update(_ s: inout GameState) {
         switch s.phase {
-        case .preServe, .deadBall:
+        case .preServe, .deadBall, .huddle:
             for side in TeamSide.allCases { toFormation(&s, TeamView(s, side)) }
         case .matchOver:
             for side in TeamSide.allCases {
@@ -216,6 +216,8 @@ public enum Choreographer {
             if k > 0 { spot.l -= (block.l >= 0 ? 1 : -1) * 0.8 }
             let pos = t.local(s.motion[id]!.pos)
             go(&s, t, id, spot, abs(pos.l - spot.l) > 2 ? .run : .shuffle)
+            // A human's blocker jumps when they tap, not before.
+            if s.notes.block?.athlete == id { continue }
             let start = c.tick - Tuning.blockJumpTicks / 2
             s.motion[id]!.jump = Jump(startTick: start, durationTicks: Tuning.blockJumpTicks, height: Tuning.blockJumpHeight)
         }

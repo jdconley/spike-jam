@@ -207,3 +207,21 @@ The effects (from the spike; the builder tunes them):
 - [ ] **Step 4: Run everything.** Run `swift test`, `scripts/test-linux.sh`, and `swift run spikesim --matches 300 --humans home --skill 0.7`. Expected: PASS, and spikesim prints a grade distribution and the catch-up margins.
 
 - [ ] **Step 5: Commit** with `git commit -m "feat(core): simulated human through real inputs, replay test"`.
+
+---
+
+## As built: corrections
+
+The code is the reference; these are the places it differs from the text above.
+
+- **Human touches use plan 3's timing path.** A grade's quality is the touch's `TouchContext.timing`, so `TouchModel` moves the athlete's trait by `Tuning.timingWeight` (0.8) per point above or below `timingPar` (0.6). The spike's quality mixes (set 0.5/0.5, attack 0.4/0.6, pass = timing) and the ±0.08 trait bound aren't used. On top of the touch model: a MISS always errs (a pass or dig is a shank), a float is never an error, has power 0.4 and toughness at least 0.45, and a human's aim sets the target and the tip.
+- **Serve:** the window opens when the line-ups are ready, with `contactTick` at the serve clock (`Tuning.serveClock`, 5 s). The press tosses, and the window comes again with the toss's top (`tossSeconds`, 0.55 s later) as `contactTick`. The release strikes at once and is judged against the top. A float serve has no `judged` event.
+- **Block:** the window opens as the other side's set leaves the setter's hands, with the attack's tick as `contactTick`. The jump peaks half a block jump (18 ticks) after the tap, judged against the attack. A window never jumped is judged a miss when it closes.
+- **Grace:** exactly 6 ticks (`Tuning.graceWindow`, rounded to the nearest tick).
+- **Huddle:** only matches with humans have one, including one before the first serve. Bot-only matches go straight from the dead ball to the serve, unchanged.
+- **Ownership:** `lastToucherHuman` is `[HumanID?]` by `TeamSide.rawValue`, so it codes byte-stably. A side's turn is taken when an owned contact's window opens, so a dig held back for a block that then touches the ball is nobody's.
+- **On fire:** a kill streak is broken by a teammate's kill, or by the hitter's own attack losing the point (an error or a stuff). It isn't broken by the other team's points, which only put fires out. With every lost point breaking it, bots caught fire about once in 12 matches. `botsCatchFire` plays 8 matches rather than 200, for CI time.
+- **Catch-up through inputs:** `CatchUpTests` now runs `SimHuman`s at skills 0.8, 0.9 and 0.3 where plan 3 ran its stand-in at timings 0.7, 0.85 and 0.6. Counts, seeds and assertions are unchanged. `skillMatters` reuses the 0.9 and 0.3 runs.
+- **`TouchSource` stays** as the tuning stand-in. It's used by `spikesim --human`, plus two unit tests.
+- **`SimHuman`** keeps its own RNG and plan: it has `mutating func inputs(for:)`, not `inputs(for:rng:)`.
+- **Additions:** `InputAction.ready`, `HumanSlot.current`, `GameState.inputBuffer`, `BlockWindow` (`RallyNotes.block`), `RallyNotes.humanReads` and `lastAttacker`, and `InputLog` with `replay(_:humans:log:maxTicks:)`.

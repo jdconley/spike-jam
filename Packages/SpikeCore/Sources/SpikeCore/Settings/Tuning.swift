@@ -268,3 +268,49 @@ extension Tuning {
     /// How far a blocker's hands reach to the side, in metres.
     public static let blockerArmReach: Float = 0.4
 }
+
+// MARK: - Human input (spec §4.2, from the spike unless noted).
+extension Tuning {
+    /// Timing grades: PERFECT within this many seconds of the contact…
+    public static let perfectWindow: Double = 0.060
+    /// …GOOD within this…
+    public static let goodWindow: Double = 0.130
+    /// …EARLY or LATE within this, and WAY EARLY or WAY LATE beyond.
+    public static let earlyLateWindow: Double = 0.250
+    /// An input up to this long after the contact moment still plays the
+    /// touch; an owned contact waits this long for one before it's a miss.
+    public static let graceWindow: Double = 0.100
+    /// A serve released this soon after the press is a safe float.
+    public static let floatTap: Double = 0.2
+    /// A float serve's power, and the least toughness it has.
+    public static let floatServePower: Float = 0.4
+    public static let floatMinQuality: Float = 0.45
+    /// From the press to the top of the serve toss (Claude's number).
+    public static let tossSeconds: Double = 0.55
+    /// A human server who hasn't tossed after this long misses the serve
+    /// (Claude's number; the rule book gives 8 s).
+    public static let serveClock: Double = 5.0
+    /// An attack aimed within this many metres of the net is a tip.
+    public static let tipZone: Float = 2.4
+    /// The huddle between rallies (spec §4.3: about 3–5 s). It never pauses
+    /// the game.
+    public static let huddleSeconds: Double = 4.0
+}
+
+// MARK: - On fire (spec §4.4, from the spike; the builder tunes them).
+extension Tuning {
+    /// Kills in a row, or a libero's perfect passes and digs in a row.
+    public static let fireStreak = 3
+    /// A pass or dig this good counts as perfect.
+    public static let perfectPass: Float = 0.99
+    /// An on-fire hitter's swing flies this many times as fast…
+    public static let fireAttackSpeed: Double = 1.25
+    /// …with this much more power…
+    public static let firePower: Float = 0.2
+    /// …and a block that would stuff it does so only this share of the time.
+    public static let fireStuffShare: Float = 0.5
+    /// An on-fire libero passes at least this well…
+    public static let fireLiberoPass: Float = 0.9
+    /// …and runs this much faster.
+    public static let fireLiberoSpeed: Float = 1.15
+}

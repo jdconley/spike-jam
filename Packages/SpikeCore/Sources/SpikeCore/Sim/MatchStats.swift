@@ -50,6 +50,16 @@ public struct MatchStats: Equatable, Sendable {
     public var drops: [TouchKind: Int] = [:]
     /// Every `erred` event, by kind of touch and error.
     public var errors: [TouchKind: [TouchError: Int]] = [:]
+    /// Every human touch's timing grade (`judged` events).
+    public var grades: [Grade: Int] = [:]
+    /// Times anyone caught fire.
+    public var fires = 0
+
+    /// The share of human touches graded `g`.
+    public func gradeRate(_ g: Grade) -> Double {
+        let total = grades.values.reduce(0, +)
+        return total == 0 ? 0 : Double(grades[g] ?? 0) / Double(total)
+    }
 
     public init() {}
 
@@ -97,24 +107,30 @@ public struct MatchStats: Equatable, Sendable {
         t.setCalls.merge(o.setCalls, uniquingKeysWith: +)
         t.drops.merge(o.drops, uniquingKeysWith: +)
         t.errors.merge(o.errors) { a, b in a.merging(b, uniquingKeysWith: +) }
+        t.grades.merge(o.grades, uniquingKeysWith: +)
+        t.fires += o.fires
         return t
     }
 }
 
-/// Plays `count` matches; match i uses seed `settings.seed + i`. `touches`
-/// plays the humans' touches (see `step`); without it every touch is the
-/// AI's. Invariants are checked after every step.
+/// Plays `count` matches; match i uses seed `settings.seed + i`. `humans`
+/// play through real inputs (each match reseeds them with its own seed);
+/// `touches` is the timing stand-in (see `step`); without either every touch
+/// is the AI's. Invariants are checked after every step.
 public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60 * 60 * 30,
-                       touches: (any TouchSource)? = nil) -> MatchStats {
+                       touches: (any TouchSource)? = nil, humans: [SimHuman] = []) -> MatchStats {
     var stats = MatchStats()
     for i in 0..<count {
         var match = settings
         match.seed = settings.seed &+ UInt64(i)
-        var s = GameState(settings: match)
+        var sims = humans.map { SimHuman(id: $0.id, team: $0.team, skill: $0.skill, pick: $0.pick, seed: match.seed) }
+        var s = GameState(settings: match, humans: sims.map(\.slot))
         var broken = false
         var led = [false, false]
         for _ in 0..<maxTicks where s.phase != .matchOver {
-            for e in step(&s, inputs: [], touches: touches) {
+            var inputs: [PlayerInput] = []
+            for k in sims.indices { inputs += sims[k].inputs(for: s) }
+            for e in step(&s, inputs: inputs, touches: touches) {
                 switch e {
                 case .served:
                     stats.touches += 1
@@ -150,7 +166,9 @@ public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60
                     if call == .dump { stats.tips += 1 }
                 case .tipped: stats.tips += 1
                 case .erred(let kind, _, let error): stats.errors[kind, default: [:]][error, default: 0] += 1
-                case .liberoIn, .matchWon: break
+                case .judged(_, let grade): stats.grades[grade, default: 0] += 1
+                case .fire(_, let on): if on { stats.fires += 1 }
+                case .liberoIn, .matchWon, .window: break
                 }
                 if case .touched(.set, let who, _) = e,
                    who != s.lineups[who.team.rawValue].settingSetter(isServing: s.isServing(who.team)) {

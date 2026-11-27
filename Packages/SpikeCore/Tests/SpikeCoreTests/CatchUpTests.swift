@@ -134,21 +134,25 @@ private func state(_ settings: MatchSettings, home: Int, away: Int) -> GameState
     #expect(CatchUp.level(state(solo(catchUp: false), home: 0, away: 12)) == [.home: 0, .away: 0])
 }
 
-/// Matches with a simulated human of `timing` on the home side against
-/// medium AI.
-private func humanRuns(_ timing: Float, catchUp: Bool, count: Int, seed: UInt64) -> MatchStats {
+/// Matches with a simulated human of `skill` playing every home touch
+/// through real inputs (`SimHuman`, "ball"), against medium AI. Plan 4
+/// replaced plan 3's stand-in (a fixed timing grade on every touch, no
+/// inputs) with it. The skills stand where the stand-in's 0.7, 0.85 and 0.6
+/// did (a human a little better than the AI, a strong one and a weak one);
+/// the assertions are plan 3's.
+private func humanRuns(_ skill: Float, catchUp: Bool, count: Int, seed: UInt64) -> MatchStats {
     var settings = solo(catchUp: catchUp)
     settings.seed = seed
-    return runParallel(settings, count: count, touches: FixedTiming(side: .home, timing: timing))
+    return runParallel(settings, count: count, humans: [SimHuman(id: HumanID(raw: 1), team: .home, skill: skill)])
 }
 
-private let closeOn = humanRuns(0.7, catchUp: true, count: 300, seed: 7000)
-private let closeOff = humanRuns(0.7, catchUp: false, count: 300, seed: 7000)
-private let goodHuman = humanRuns(0.85, catchUp: true, count: 200, seed: 8000)
-private let poorHuman = humanRuns(0.6, catchUp: true, count: 200, seed: 8000)
+private let closeOn = humanRuns(0.8, catchUp: true, count: 300, seed: 7000)
+private let closeOff = humanRuns(0.8, catchUp: false, count: 300, seed: 7000)
+private let goodHuman = humanRuns(0.9, catchUp: true, count: 200, seed: 8000)
+private let poorHuman = humanRuns(0.3, catchUp: true, count: 200, seed: 8000)
 
-@Test func closesTheGap() {
-    print("0.7 human: catch-up off margin \(closeOff.avgMargin), home wins \(closeOff.homeWinRate); "
+@Test func closesTheGap() {                                         // catchUpThroughInputs
+    print("0.8 human: catch-up off margin \(closeOff.avgMargin), home wins \(closeOff.homeWinRate); "
           + "on margin \(closeOn.avgMargin), home wins \(closeOn.homeWinRate)")
     #expect(closeOn.unfinished == 0 && closeOff.unfinished == 0)
     #expect(closeOn.invariantFailures == 0)
@@ -161,11 +165,23 @@ private let poorHuman = humanRuns(0.6, catchUp: true, count: 200, seed: 8000)
 }
 
 @Test func skillStillWins() {
-    print("with catch-up: 0.85 human wins \(goodHuman.homeWinRate), 0.6 human wins \(poorHuman.homeWinRate)")
+    print("with catch-up: 0.9 human wins \(goodHuman.homeWinRate), 0.3 human wins \(poorHuman.homeWinRate)")
     #expect(goodHuman.homeWinRate >= poorHuman.homeWinRate + 0.2)
 }
 
-@Test func neverFlips() {
+@Test func skillMatters() {
+    // Through real inputs: the better human times far more touches PERFECT
+    // and wins more against medium AI.
+    let good = goodHuman.gradeRate(.perfect), poor = poorHuman.gradeRate(.perfect)
+    print("PERFECT: 0.9 human \(good), 0.3 human \(poor); misses \(goodHuman.gradeRate(.miss)), \(poorHuman.gradeRate(.miss))")
+    #expect(good >= poor + 0.25)
+    #expect(goodHuman.homeWinRate > poorHuman.homeWinRate)
+    #expect(goodHuman.unfinished == 0 && poorHuman.unfinished == 0)
+    #expect(goodHuman.invariantFailures == 0 && poorHuman.invariantFailures == 0)
+    #expect(goodHuman.overlapViolations == 0 && poorHuman.overlapViolations == 0)
+}
+
+@Test func neverFlips() {                                           // catchUpThroughInputs
     // Of the matches the human led by 6 or more at some point, they win at
     // least 85%, catch-up and all.
     let runs = [closeOn, goodHuman, poorHuman]
