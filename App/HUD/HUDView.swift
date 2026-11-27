@@ -45,7 +45,7 @@ struct HUDView: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("prompt")
             }
-            ScoreChip(score: model.score, autoplay: autoplay)
+            ScoreChip(score: model.score, autoplay: autoplay, you: model.ownership.localSide ?? .home)
                 .frame(width: layout.scoreRect.width, height: layout.scoreRect.height)
                 .position(x: layout.scoreRect.midX, y: layout.scoreRect.midY)
                 .allowsHitTesting(false)
@@ -65,12 +65,14 @@ struct HUDView: View {
 private struct ScoreChip: View {
     let score: ScoreLine
     let autoplay: Bool
+    /// The local player's side, which reads YOU (on the same Wi-Fi it can be away).
+    var you: TeamSide = .home
 
     var body: some View {
         HStack(spacing: 6) {
-            side(autoplay ? "HOME" : "YOU", score.home, serving: score.serving == .home)
+            side(name(.home), score.home, serving: score.serving == .home)
             Text("–").foregroundStyle(.white.opacity(0.6))
-            side(autoplay ? "AWAY" : "THEM", score.away, serving: score.serving == .away)
+            side(name(.away), score.away, serving: score.serving == .away)
         }
         .font(HUDStyle.font(13))
         .foregroundStyle(.white)
@@ -78,6 +80,11 @@ private struct ScoreChip: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(HUDStyle.ink, in: Capsule())
         .accessibilityIdentifier("score")
+    }
+
+    private func name(_ side: TeamSide) -> String {
+        if autoplay { return side == .home ? "HOME" : "AWAY" }
+        return side == you ? "YOU" : "THEM"
     }
 
     private func side(_ name: String, _ points: Int, serving: Bool) -> some View {

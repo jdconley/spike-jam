@@ -12,12 +12,15 @@ enum MatchMode: Equatable {
     /// A solo match whose touches a robot finger plays through the real touch path:
     /// `-demo assist`, for screenshots and checks without a person.
     case assist(MatchSettings)
+    /// A match on the same Wi-Fi, hosted here or joined (plan 6).
+    case network(NetMatch)
 
     /// The local human's team, if anyone is playing.
     var localSide: TeamSide? {
         switch self {
         case .solo, .assist: .home
         case .autoplay: nil
+        case .network(let n): n.side
         }
     }
 
@@ -25,6 +28,21 @@ enum MatchMode: Equatable {
         switch self {
         case .solo(let s), .assist(let s): s
         case .autoplay: MatchSettings()
+        case .network(let n): n.settings
+        }
+    }
+
+    var network: NetMatch? {
+        if case .network(let n) = self { return n }
+        return nil
+    }
+
+    /// The robot finger plays the local human's touches.
+    var robotPlays: Bool {
+        switch self {
+        case .assist: true
+        case .network(let n): n.robot
+        case .solo, .autoplay: false
         }
     }
 }
@@ -53,6 +71,8 @@ struct MatchView: View {
         .animation(.easeOut(duration: 0.2), value: host.hud.huddle == nil)
         .onAppear {
             host.onMatchOver = { winner = $0 }
+            // A guest's next match (the host played again) clears the result.
+            host.onNewMatch = { winner = nil }
         }
         .onDisappear { host.stop() }
         // A solo match pauses in the background and picks up without a burst of steps.
@@ -83,11 +103,21 @@ struct MatchView: View {
                               y: HUDLayout.topBand + (layout.size.height - HUDLayout.topBand) / 2)
                     .transition(.opacity)
             }
-            if let winner {
-                MatchOverCard(winner: winner, score: hud.score, again: {
-                    self.winner = nil
-                    host.playAgain()
-                }, menu: leave)
+            if let banner = host.net.state.banner {
+                NetBanner(text: banner)
+                    .position(x: layout.size.width / 2, y: HUDLayout.topBand + 34)
+                    .allowsHitTesting(false)
+            }
+            if host.net.state.over {
+                HostLeftCard(menu: leave)
+                    .frame(width: layout.size.width, height: layout.size.height)
+            } else if let winner {
+                MatchOverCard(won: winner == host.mode.localSide, score: hud.score,
+                              again: host.canPlayAgain ? {
+                                  self.winner = nil
+                                  host.playAgain()
+                              } : nil,
+                              waiting: host.mode.network.map { !$0.isHost } ?? false, menu: leave)
                 .frame(width: layout.size.width, height: layout.size.height)
             }
         }
@@ -103,26 +133,35 @@ struct MatchView: View {
 }
 
 private struct MatchOverCard: View {
-    let winner: TeamSide
+    let won: Bool
     let score: ScoreLine
-    let again: () -> Void
+    /// Nil on a guest's phone: the host plays again.
+    let again: (() -> Void)?
+    var waiting = false
     let menu: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(winner == .home ? "YOU WIN" : "THEY WIN")
+            Text(won ? "YOU WIN" : "THEY WIN")
                 .font(.system(size: 40, weight: .black).italic())
                 .foregroundStyle(.white)
             Text("\(score.home) – \(score.away)")
                 .font(.system(size: 22, weight: .black)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.85))
+            if waiting {
+                Text("Waiting for the host to play again…")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
             HStack(spacing: 12) {
-                Button(action: again) {
-                    Text("PLAY AGAIN")
-                        .font(.system(size: 18, weight: .black))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 22).frame(minHeight: 50)
-                        .background(HUDStyle.gold, in: Capsule())
+                if let again {
+                    Button(action: again) {
+                        Text("PLAY AGAIN")
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 22).frame(minHeight: 50)
+                            .background(HUDStyle.gold, in: Capsule())
+                    }
                 }
                 Button(action: menu) {
                     Text("MENU")
@@ -131,6 +170,42 @@ private struct MatchOverCard: View {
                         .padding(.horizontal, 22).frame(minHeight: 50)
                         .background(.white.opacity(0.15), in: Capsule())
                 }
+            }
+        }
+        .padding(28)
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+/// A line over the court for a match on the same Wi-Fi: "Host paused", a guest dropped.
+private struct NetBanner: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(HUDStyle.font(15)).italic()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(HUDStyle.ink, in: Capsule())
+            .accessibilityIdentifier("netBanner")
+    }
+}
+
+/// The host ended the match (or went away for good): back to the menu.
+private struct HostLeftCard: View {
+    let menu: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("THE HOST LEFT")
+                .font(.system(size: 34, weight: .black).italic())
+                .foregroundStyle(.white)
+            Button(action: menu) {
+                Text("MENU")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 22).frame(minHeight: 50)
+                    .background(HUDStyle.gold, in: Capsule())
             }
         }
         .padding(28)
@@ -165,6 +240,10 @@ final class MatchHost {
     private(set) var controller: ControllerInput?
     private(set) var demo: DemoFinger?
     var onMatchOver: ((TeamSide) -> Void)?
+    /// A new match started without this view asking (the host played again, on a guest's phone).
+    var onNewMatch: (() -> Void)?
+    /// The network banner, for a match on the same Wi-Fi.
+    let net = NetStatus()
 
     /// The view's size and the HUD's frames, from SwiftUI: the strip and the huddle never take
     /// timing taps.
@@ -180,12 +259,19 @@ final class MatchHost {
     private var overSince: Double?
     private var reportedOver = false
     private var lastFrame: Double?
+    private var guestMatch = 0
 
     init(mode: MatchMode, makeClient: @escaping ClientFactory = MatchHost.localClient) {
         self.mode = mode
-        self.makeClient = makeClient
+        if let n = mode.network {
+            // The session made the loop (and makes the next one, on Play again).
+            self.makeClient = { _, _ in n.client }
+            human = n.human
+        } else {
+            self.makeClient = makeClient
+            human = mode.localSide == nil ? nil : Self.soloHuman
+        }
         settings = mode.settings
-        human = mode.localSide == nil ? nil : Self.soloHuman
         ownership = HumanOwnership(human: human, side: mode.localSide)
         director = CameraDirector(ownership: ownership)
         hud = HUDModel(human: human, ownership: ownership)
@@ -234,7 +320,7 @@ final class MatchHost {
                                              switchTo: { [weak self] in self?.hud.tapStrip($0) })
             controller.start()
             self.controller = controller
-            if case .assist = mode { demo = DemoFinger(translator: translator, ownership: ownership) }
+            if mode.robotPlays { demo = DemoFinger(translator: translator, ownership: ownership) }
         }
         sounds.start()
         loop.start()
@@ -246,10 +332,28 @@ final class MatchHost {
         sounds.stop()
     }
 
-    /// A fresh match with the same settings and a new seed.
+    /// Whether this phone can start the next match: not a guest's (the host does).
+    var canPlayAgain: Bool { mode.network.map(\.isHost) ?? true }
+
+    /// A fresh match with the same settings and a new seed. On the same Wi-Fi, the host's
+    /// session starts it for every phone.
     func playAgain() {
-        settings.seed &+= 1
+        if let n = mode.network {
+            guard n.rematch() else { return }
+        } else {
+            settings.seed &+= 1
+        }
         replace()
+    }
+
+    /// The guest's loop moved on to a new match by itself: start the drawing over.
+    private func startedOver(_ client: any ClientLoop) {
+        overSince = nil
+        reportedOver = false
+        presentation.reset()
+        ownership.reset()
+        director.reset(to: client.current)
+        onNewMatch?()
     }
 
     private func replace() {
@@ -260,7 +364,7 @@ final class MatchHost {
         ownership.reset()
         director.reset(to: client.current)
         loop?.replace(client: client)
-        if let translator, case .assist = mode { demo = DemoFinger(translator: translator, ownership: ownership) }
+        if let translator, mode.robotPlays { demo = DemoFinger(translator: translator, ownership: ownership) }
     }
 
     private func relayout() {
@@ -285,6 +389,15 @@ final class MatchHost {
 
     private func frame(_ client: any ClientLoop, _ events: [GameEvent]) {
         guard let scene else { return }
+        if let n = mode.network {
+            net.set(n.status(now: CACurrentMediaTime()))
+            // The host played again: a guest's loop has the new match.
+            if let g = client as? GuestClientLoop, g.matchNumber != guestMatch {
+                let first = guestMatch == 0
+                guestMatch = g.matchNumber
+                if !first { startedOver(client) }
+            }
+        }
         let live = client.current
         ownership.observe(events, in: live)
         translator?.update(live)
@@ -326,7 +439,7 @@ final class MatchHost {
             return
         }
         switch mode {
-        case .solo:
+        case .solo, .network:
             if !reportedOver, let w = s.score.winner {
                 reportedOver = true
                 onMatchOver?(w)

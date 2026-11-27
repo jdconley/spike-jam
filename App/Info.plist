@@ -26,6 +26,12 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_spikejam._udp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Spike Jam finds and joins games on your Wi-Fi.</string>
 	<key>UIStatusBarHidden</key>
 	<true/>
 </dict>
