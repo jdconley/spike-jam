@@ -18,6 +18,8 @@ import SpikeCore
 /// - Events play at once, except celebrations (points, the score, kill banners, fire), which
 ///   wait for the host's confirmation: a predicted kill that the host turns into a stuff shows
 ///   only as the stuff. The drawn score is the confirmed one.
+/// - When the host says it paused, the clock stops and nothing more is predicted (`hostPaused`)
+///   until a snapshot from after the pause, then it runs on from where it stopped.
 ///
 /// It is the app's `ClientLoop` (`previous`, `current`, `alpha`, `send(_:at:)`, `advance(to:)`,
 /// `pause()`, `resume(at:)`); the app's conformance is one line. Times are seconds on the app's
@@ -51,6 +53,12 @@ public final class PredictingClientLoop {
     /// The host said bye.
     public private(set) var hostLeft = false
     public private(set) var isPaused = false
+    /// The host said it paused, and no snapshot since says it's back: the clock is stopped and
+    /// nothing is predicted (the app shows "Host paused").
+    public private(set) var hostPaused = false
+    /// The hosting phone's own client: it pauses with the host directly, so it doesn't stop for
+    /// the host's `paused`.
+    public var ignoresHostPause = false
     /// Snapshots that disagreed with the prediction, and the steps replayed for them.
     public private(set) var corrections = 0
     public private(set) var replayedSteps = 0
@@ -72,8 +80,13 @@ public final class PredictingClientLoop {
     private var anchorTime: Double?
     private var anchorTick: Double = 0
     private var rate: Double = 1
-    /// Don't jump the clock again until the host has packets sent after this tick.
+    /// The clock jumped to this tick: don't jump again until the host has a packet sent since
+    /// (one from before has a tick below it, or, after a jump back, above the clock).
     private var jumpedAt: Int?
+    /// While the host is paused: the tick the clock stopped at.
+    private var frozenTick: Double?
+    /// The newest tick the host said it paused at.
+    private var pausedTick: Int?
 
     struct Own {
         var seq: UInt32
@@ -140,6 +153,7 @@ public final class PredictingClientLoop {
 
     /// The tick the clock is at, with the fraction into it.
     public func clockTick(_ now: Double) -> Double {
+        if let frozenTick { return frozenTick }
         guard let anchorTime else { return Double(predicted.tick) }
         return anchorTick + (now - anchorTime) / Tuning.dt * rate
     }
@@ -155,6 +169,21 @@ public final class PredictingClientLoop {
     func reanchor(_ now: Double) {
         anchorTick = clockTick(now)
         anchorTime = now
+    }
+
+    /// Stops the clock where it is for the host's pause, or starts it again from there.
+    func setHostPaused(_ paused: Bool, _ now: Double) {
+        guard paused != hostPaused else { return }
+        hostPaused = paused
+        if paused {
+            frozenTick = clockTick(now)
+        } else if let f = frozenTick {
+            frozenTick = nil
+            if anchorTime != nil {
+                anchorTick = f
+                anchorTime = now
+            }
+        }
     }
 
     // MARK: - Inputs
@@ -346,10 +375,16 @@ public final class PredictingClientLoop {
                 reliable.removeAll { $0.seq <= seq }
             case .bye:
                 hostLeft = true
+            case .paused(let tick):
+                // One that comes after a later snapshot is old news: the host is back.
+                if !ignoresHostPause, tick >= (snapshotTick ?? .min) { pausedTick = max(pausedTick ?? tick, tick) }
             case .welcome, .hello, .inputs, .reliable:
                 break
             }
         }
+        // A snapshot after the pause's tick means the host is back.
+        if let p = pausedTick, let newest, newest.tick > p { pausedTick = nil }
+        setHostPaused(pausedTick != nil, now)
         if let newest { take(newest, now) }
     }
 
@@ -413,7 +448,10 @@ public final class PredictingClientLoop {
     /// a stall) the clock jumps so the host gets inputs about two steps early.
     func syncClock(_ snap: Snapshot, _ packetTick: Int?, _ now: Double) {
         guard let p = packetTick else { return }
-        if let j = jumpedAt, p < j { return }
+        if let j = jumpedAt {
+            guard p >= j, Double(p) <= clockTick(now) + 2 else { return }
+            jumpedAt = nil
+        }
         let early = Double(p - snap.tick)
         guard early < 0 || early > 5 else { return }
         reanchor(now)
@@ -453,7 +491,7 @@ public final class PredictingClientLoop {
     /// snapshot bring it back to the host's time.
     public func resume(at now: Double) {
         isPaused = false
-        if anchorTime != nil {
+        if anchorTime != nil, frozenTick == nil {
             anchorTick = Double(predicted.tick) + alpha
             anchorTime = now
         }
