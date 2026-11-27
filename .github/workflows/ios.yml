@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -101,7 +101,7 @@ jobs:
   # SpikeArt, the placeholder RealityKit art kit. RealityKit is Apple-only, so macOS only.
   spikeart:
     name: SpikeArt tests (macOS)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -113,7 +113,7 @@ jobs:
   # never uploaded.
   app-dev:
     name: SpikeJamDev build and tests (iOS Simulator)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -134,12 +134,15 @@ jobs:
         id: sim
         run: |
           id=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
+          import json, re, sys
           rts = json.load(sys.stdin)["devices"]
           best = None
           for rt, devs in rts.items():
               if ".iOS-" not in rt: continue
-              ver = tuple(int(x) for x in rt.split(".iOS-")[1].split("-"))
+              # e.g. ...SimRuntime.iOS-27-0, or with a suffix on newer images.
+              m = re.search(r"\.iOS-(\d+)(?:-(\d+))?", rt)
+              if not m: continue
+              ver = tuple(int(x) for x in m.groups() if x)
               if ver < (26,): continue
               for d in devs:
                   if d["name"].startswith("iPhone") and (best is None or ver > best[0]):
@@ -156,7 +159,7 @@ jobs:
   testflight:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    runs-on: xcode-27
     # Archive and upload take ~15 min; distributing waits up to 30 more for App Store Connect processing.
     timeout-minutes: 75
     concurrency:
@@ -177,6 +180,14 @@ jobs:
             echo "::notice title=TestFlight::ASC_KEY_ID, ASC_ISSUER_ID or ASC_KEY_P8 is unset, so the upload is skipped. See README.md, TestFlight."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
+      # App Store Connect warns about builds made with an old SDK, so never upload one.
+      - name: Require the iOS 27 SDK
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          xcodebuild -version
+          sdk=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iOS SDK $sdk"
+          if [ "${sdk%%.*}" -lt 27 ]; then echo "::error::built with iOS SDK $sdk; TestFlight needs iOS 27 or later"; exit 1; fi
       - if: steps.creds.outputs.ready == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
