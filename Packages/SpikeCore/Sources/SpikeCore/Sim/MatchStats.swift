@@ -55,6 +55,12 @@ public struct MatchStats: Equatable, Sendable {
     /// Times anyone caught fire.
     public var fires = 0
 
+    /// The share of human touches graded `g`.
+    public func gradeRate(_ g: Grade) -> Double {
+        let total = grades.values.reduce(0, +)
+        return total == 0 ? 0 : Double(grades[g] ?? 0) / Double(total)
+    }
+
     public init() {}
 
     public var avgTouchesPerRally: Double { rallies == 0 ? 0 : Double(touches) / Double(rallies) }
@@ -107,20 +113,24 @@ public struct MatchStats: Equatable, Sendable {
     }
 }
 
-/// Plays `count` matches; match i uses seed `settings.seed + i`. `touches`
-/// plays the humans' touches (see `step`); without it every touch is the
-/// AI's. Invariants are checked after every step.
+/// Plays `count` matches; match i uses seed `settings.seed + i`. `humans`
+/// play through real inputs (each match reseeds them with its own seed);
+/// `touches` is the timing stand-in (see `step`); without either every touch
+/// is the AI's. Invariants are checked after every step.
 public func runMatches(_ settings: MatchSettings, count: Int, maxTicks: Int = 60 * 60 * 30,
-                       touches: (any TouchSource)? = nil) -> MatchStats {
+                       touches: (any TouchSource)? = nil, humans: [SimHuman] = []) -> MatchStats {
     var stats = MatchStats()
     for i in 0..<count {
         var match = settings
         match.seed = settings.seed &+ UInt64(i)
-        var s = GameState(settings: match)
+        var sims = humans.map { SimHuman(id: $0.id, team: $0.team, skill: $0.skill, pick: $0.pick, seed: match.seed) }
+        var s = GameState(settings: match, humans: sims.map(\.slot))
         var broken = false
         var led = [false, false]
         for _ in 0..<maxTicks where s.phase != .matchOver {
-            for e in step(&s, inputs: [], touches: touches) {
+            var inputs: [PlayerInput] = []
+            for k in sims.indices { inputs += sims[k].inputs(for: s) }
+            for e in step(&s, inputs: inputs, touches: touches) {
                 switch e {
                 case .served:
                     stats.touches += 1

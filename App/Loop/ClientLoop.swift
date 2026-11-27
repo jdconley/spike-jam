@@ -87,7 +87,11 @@ final class LocalClientLoop: ClientLoop {
     }
 
     func send(_ input: PlayerInput, at time: Double) {
-        queued.append(QueuedInput(stamp: stamp(at: time), input: input))
+        let stamp = stamp(at: time)
+        var input = input
+        input.tick = stamp.tick
+        input.offset = Float(stamp.offset)
+        queued.append(QueuedInput(stamp: stamp, input: input))
     }
 
     func advance(to now: Double) -> [GameEvent] {

@@ -1,9 +1,11 @@
 // spikesim: plays headless matches and prints their stats. Bot against bot
-// by default; --human T puts a simulated human with timing grade T (0...1)
-// on every home touch, against the AI, to measure the catch-up.
+// by default. --humans home|both puts a simulated human ("ball", so every
+// touch on their side) of skill --skill (0...1, default 0.7) on those sides,
+// playing through real inputs; it prints their timing grades. --human T is
+// the older stand-in: timing grade T on every home touch, without inputs.
 //   spikesim [--matches N] [--seed S] [--game mens|womens] [--system 51|62]
 //            [--tempo fast|faster|stupidfast] [--difficulty easy|medium|hard]
-//            [--human T] [--catchup on|off]
+//            [--humans home|both] [--skill K] [--human T] [--catchup on|off]
 import SpikeCore
 #if canImport(Darwin)
 import Darwin
@@ -16,7 +18,7 @@ import Musl
 func fail(_ message: String) -> Never {
     print("spikesim: \(message)")
     print("usage: spikesim [--matches N] [--seed S] [--game mens|womens] [--system 51|62] [--tempo fast|faster|stupidfast]"
-          + " [--difficulty easy|medium|hard] [--human T] [--catchup on|off]")
+          + " [--difficulty easy|medium|hard] [--humans home|both] [--skill K] [--human T] [--catchup on|off]")
     exit(2)
 }
 
@@ -33,6 +35,8 @@ struct FixedTiming: TouchSource {
 var count = 100
 var settings = MatchSettings()
 var human: FixedTiming?
+var humanSides: [TeamSide] = []
+var skill: Float = 0.7
 var args = CommandLine.arguments.dropFirst()
 while let flag = args.popFirst() {
     guard let value = args.popFirst() else { fail("\(flag) needs a value") }
@@ -68,6 +72,15 @@ while let flag = args.popFirst() {
         guard let t = Float(value), (0...1).contains(t) else { fail("bad --human \(value)") }
         human = FixedTiming(side: .home, timing: t)
         settings.humanSides = [.home]
+    case "--humans":
+        switch value {
+        case "home": humanSides = [.home]
+        case "both": humanSides = [.home, .away]
+        default: fail("bad --humans \(value)")
+        }
+    case "--skill":
+        guard let k = Float(value), (0...1).contains(k) else { fail("bad --skill \(value)") }
+        skill = k
     case "--catchup":
         guard value == "on" || value == "off" else { fail("bad --catchup \(value)") }
         settings.catchUp = value == "on"
@@ -76,7 +89,10 @@ while let flag = args.popFirst() {
     }
 }
 
-let stats = runMatches(settings, count: count, touches: human)
+let sims = humanSides.enumerated().map { i, side in
+    SimHuman(id: HumanID(raw: UInt8(i + 1)), team: side, skill: skill)
+}
+let stats = runMatches(settings, count: count, touches: human, humans: sims)
 func fmt(_ x: Double) -> String {
     let scaled = (x * 1000).rounded() / 1000
     return "\(scaled)"
@@ -88,6 +104,10 @@ print("seed: \(settings.seed)")
 print("difficulty: \(settings.difficulty.rawValue)")
 if let human {
     print("human: home, timing \(human.timing), catch-up \(settings.catchUp ? "on" : "off")")
+}
+if !sims.isEmpty {
+    let sides = humanSides.map { $0 == .home ? "home" : "away" }.joined(separator: " and ")
+    print("humans: \(sides), skill \(skill), through inputs, catch-up \(settings.catchUp ? "on" : "off")")
 }
 print("matches: \(stats.matches)")
 print("rallies: \(stats.rallies)")
@@ -114,6 +134,11 @@ print("drops: " + stats.drops.sorted { $0.key.rawValue < $1.key.rawValue }.map {
 print("errors: " + stats.errors.sorted { $0.key.rawValue < $1.key.rawValue }.map { kind, byError in
     "\(kind.rawValue) " + byError.sorted { $0.key.rawValue < $1.key.rawValue }.map { "\($0.key.rawValue) \($0.value)" }.joined(separator: "/")
 }.joined(separator: ", "))
+if !sims.isEmpty {
+    let total = stats.grades.values.reduce(0, +)
+    print("grades (\(total)): " + Grade.allCases.map { "\($0.rawValue) \(fmt(stats.gradeRate($0) * 100))%" }.joined(separator: ", "))
+}
+print("fires: \(stats.fires)")
 print("avgTouchesPerRally: \(fmt(stats.avgTouchesPerRally))")
 print("serveErrorRate: \(fmt(stats.serveErrorRate))")
 print("aceRate: \(fmt(stats.aceRate))")
