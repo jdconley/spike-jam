@@ -18,13 +18,17 @@ final class Sounds {
         case floor
         /// The crowd reacting, `level` 0...1.
         case crowd(level: Float)
+        /// A bright ding: the local player timed a touch perfectly.
+        case perfect
     }
 
-    /// The cues `events` call for.
-    static func cues(for events: [FeltEvent]) -> [Cue] {
+    /// The cues `events` call for. With `ownership`, the local player's perfect touches ding.
+    static func cues(for events: [FeltEvent], ownership: HumanOwnership? = nil) -> [Cue] {
         var out: [Cue] = []
         for e in events {
             switch e.event {
+            case .judged(let id, .perfect) where ownership?.window(id) != nil:
+                out.append(.perfect)
             case .served:
                 out.append(.ball(power: TouchPower.of(.serve, incoming: e.incoming, outgoing: e.outgoing)))
             case .touched(let kind, _, _):
@@ -56,6 +60,9 @@ final class Sounds {
         buffers = [
             "hitSoft": Self.render(0.14) { t in Self.thump(t, from: 150, to: 95, decay: 30) + 0.25 * Self.click(t) },
             "hitHard": Self.render(0.16) { t in Self.thump(t, from: 190, to: 80, decay: 24) + 0.6 * Self.click(t) },
+            "perfect": Self.render(0.22) { t in
+                0.35 * (sin(2 * .pi * 1320 * t) + 0.5 * sin(2 * .pi * 1980 * t)) * exp(-16 * t)
+            },
             "set": Self.render(0.07) { t in 0.5 * sin(2 * .pi * 520 * t) * exp(-60 * t) + 0.15 * Self.click(t) },
             "net": Self.render(0.4) { t in
                 (0.55 * Self.noise(t) * (0.6 + 0.4 * sin(2 * .pi * 38 * t)) + 0.3 * sin(2 * .pi * 70 * t)) * exp(-7 * t)
@@ -119,6 +126,8 @@ final class Sounds {
                 voice("floor", volume: 0.7)
             case .crowd(let level):
                 voice("crowd", volume: 0.35 + 0.65 * level)
+            case .perfect:
+                voice("perfect", volume: 0.5)
             }
         }
     }

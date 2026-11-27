@@ -184,20 +184,8 @@ enum SceneMapping {
 
     // MARK: On fire
 
-    /// Who is on fire, if this `GameState` knows about fire at all. Plan 4 adds
-    /// `fire: [AthleteID: FireState]` with an `onFire` flag; until then there is no such field and
-    /// this is empty. Read by reflection so the app builds against SpikeCore before and after.
+    /// Who is on fire (spec §4.4): flames on the rig and a trail on their ball.
     static func onFire(in s: GameState) -> Set<AthleteID> {
-        guard let field = Mirror(reflecting: s).descendant("fire") else { return [] }
-        guard let table = field as? [AthleteID: Any] else { return [] }
-        var lit: Set<AthleteID> = []
-        for (id, value) in table {
-            if let on = value as? Bool {
-                if on { lit.insert(id) }
-            } else if let on = Mirror(reflecting: value).descendant("onFire") as? Bool {
-                if on { lit.insert(id) }
-            }
-        }
-        return lit
+        Set(s.fire.filter(\.value.onFire).keys)
     }
 }

@@ -35,10 +35,11 @@ struct CameraShot: Equatable, Sendable {
     }
 
     /// This shot with its field of view widened, if needed, so every point in `points` lands
-    /// within `edge` of the view's sides and top and above `-bottom` (the bottom keeps room for
-    /// the switch strip). Capped at `maxFov`.
-    func fitting(_ points: [SIMD3<Float>], aspect: Float, edge: Float = 0.92, bottom: Float = 0.78,
+    /// within `edge` of the view's sides, below `top` and above `-bottom` (the bottom keeps room
+    /// for the switch strip). Capped at `maxFov`.
+    func fitting(_ points: [SIMD3<Float>], aspect: Float, edge: Float = 0.92, top: Float? = nil, bottom: Float = 0.78,
                  maxFov: Float = 75) -> CameraShot {
+        let top = top ?? edge
         let b = basis
         var need = tanf(fov * .pi / 360)
         for p in points {
@@ -46,7 +47,7 @@ struct CameraShot: Equatable, Sendable {
             let z = simd_dot(d, b.forward)
             guard z > 1e-3 else { continue }
             let x = simd_dot(d, b.right), y = simd_dot(d, b.up)
-            need = max(need, abs(x) / (z * aspect * edge), y >= 0 ? y / (z * edge) : -y / (z * bottom))
+            need = max(need, abs(x) / (z * aspect * edge), y >= 0 ? y / (z * top) : -y / (z * bottom))
         }
         var out = self
         out.fov = max(fov, min(2 * atanf(need) * 180 / .pi, maxFov))
@@ -74,6 +75,15 @@ final class CameraDirector {
     var ownership: any LocalOwnership
     /// The viewport's width over height. Landscape phones run from 1.78 (SE) to 2.17 (17 Pro).
     var aspect: Float = 2.17
+    /// Where the HUD leaves the court clear during the local player's aimed touches, as the
+    /// highest and lowest NDC y their court may reach (Review Focus 5). `HUDLayout` sets them for
+    /// the view's size.
+    var aimBands = AimBands()
+
+    struct AimBands: Equatable, Sendable {
+        var top: Float = 0.92
+        var bottom: Float = 0.78
+    }
     /// The shot drawn last frame.
     private(set) var current: CameraShot = CameraDirector.wideSideline
     private(set) var kind: Kind = .wide
@@ -86,7 +96,7 @@ final class CameraDirector {
     static let shakeDuration = 0.35
     static let shakeAmplitude: Float = 0.1
 
-    init(ownership: any LocalOwnership = SideOwnership(localSide: nil)) {
+    init(ownership: any LocalOwnership = HumanOwnership.nobody) {
         self.ownership = ownership
     }
 
@@ -113,8 +123,13 @@ final class CameraDirector {
                 return (.killFinish, shot)
             }
             finish = nil
+            if let p = s.pending, p.kind == .serve {
+                // A human's serve clock: the line-ups are set and the server waits for the toss.
+                return (.serve, serveShot(s))
+            }
             if let p = s.pending, p.kind == .attack {
-                return (.swoop, swoopShot(attacking: p.team, contact: landingSpot(s) ?? contactGuess(p, s)))
+                return (.swoop, swoopShot(attacking: p.team, contact: landingSpot(s) ?? contactGuess(p, s),
+                                          aiming: ownership.aimWindow(in: s) == .attack))
             }
             if let hitter = s.lastTouch, isAttackInFlight(s), let from = s.ball?.p0 {
                 // The block and the dig, still from behind the hitter.
@@ -142,16 +157,22 @@ final class CameraDirector {
         // High enough that their court opens up over the net, where you aim.
         let shot = CameraShot(position: [p.x - dir * 4.2, 6.4, p.z * 0.55],
                               target: [dir * 3.2, 0, p.z * 0.1], fov: 40)
-        return shot.fitting(Self.courtCorners(side.other), aspect: aspect)
+        return fit(shot, Self.courtCorners(side.other), aiming: ownership.aimWindow(in: s) == .serve)
     }
 
     /// Low behind the hitter on their side, toward the near sideline, looking over the net at the
     /// court they hit into, with the contact point in view.
-    func swoopShot(attacking side: TeamSide, contact: SIMD3<Float>) -> CameraShot {
+    func swoopShot(attacking side: TeamSide, contact: SIMD3<Float>, aiming: Bool = false) -> CameraShot {
         let dir = side.dir
         let shot = CameraShot(position: [contact.x - dir * 7.0, 4.6, contact.z * 0.45 + 3.2],
                               target: [dir * 3.8, 0.8, contact.z * 0.25], fov: 44)
-        return shot.fitting(Self.courtCorners(side.other) + [contact], aspect: aspect)
+        return fit(shot, Self.courtCorners(side.other) + [contact], aiming: aiming)
+    }
+
+    /// `shot` widened to show `points`; while the local player aims, clear of the HUD's bands.
+    private func fit(_ shot: CameraShot, _ points: [SIMD3<Float>], aiming: Bool) -> CameraShot {
+        guard aiming else { return shot.fitting(points, aspect: aspect) }
+        return shot.fitting(points, aspect: aspect, top: min(aimBands.top, 0.92), bottom: min(aimBands.bottom, 0.78))
     }
 
     /// The punch-in on where a kill or a stuff comes down, from the hitter's side.

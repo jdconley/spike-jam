@@ -1,7 +1,7 @@
 import Foundation
 import SpikeCore
 import Testing
-@testable import SpikeJamDev
+@testable import SpikeJam
 
 private let dt = Tuning.dt
 

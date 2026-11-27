@@ -1,3 +1,4 @@
+import QuartzCore
 import RealityKit
 import SpikeCore
 import SwiftUI
@@ -8,20 +9,31 @@ enum MatchMode: Equatable {
     case solo(MatchSettings)
     /// Bots against bots, one match after another: `-demo autoplay`.
     case autoplay
+    /// A solo match whose touches a robot finger plays through the real touch path:
+    /// `-demo assist`, for screenshots and checks without a person.
+    case assist(MatchSettings)
 
     /// The local human's team, if anyone is playing.
     var localSide: TeamSide? {
-        if case .solo = self { return .home }
-        return nil
+        switch self {
+        case .solo, .assist: .home
+        case .autoplay: nil
+        }
+    }
+
+    var settings: MatchSettings {
+        switch self {
+        case .solo(let s), .assist(let s): s
+        case .autoplay: MatchSettings()
+        }
     }
 }
 
-/// A match on screen: the court, a score line (the real HUD is Task 4), a way back to the menu,
-/// and the result when a solo match ends.
+/// A match on screen: the court, the HUD, the switch strip and the huddle over it, and the result
+/// when a solo match ends.
 struct MatchView: View {
     let exit: () -> Void
     @State private var host: MatchHost
-    @State private var score = ScoreLine()
     @State private var winner: TeamSide?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -31,38 +43,35 @@ struct MatchView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
+        let hud = host.hud
+        let layout = hud.layout
+        ZStack(alignment: .topLeading) {
             MatchARView(host: host)
-            Text(score.text(autoplay: host.mode == .autoplay))
-                .font(.system(size: 15, weight: .black)).monospacedDigit()
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(.black.opacity(0.45), in: Capsule())
-                .padding(.top, 12)
-                .allowsHitTesting(false)
-            HStack {
-                Button(action: leave) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(.black.opacity(0.45), in: Circle())
-                }
-                .accessibilityLabel("Menu")
-                Spacer()
+            HUDView(model: hud, layout: layout, autoplay: host.mode == .autoplay, menu: leave)
+            if !hud.strip.isEmpty {
+                SwitchStrip(chips: hud.strip, tap: hud.tapStrip)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MatchView.space)) } action: { host.stripFrame = $0 }
+                    .position(x: layout.stripRect.midX, y: layout.stripRect.midY)
             }
-            .padding(.top, 10).padding(.horizontal, 16)
+            if let huddle = hud.huddle, !huddle.ready {
+                HuddleView(huddle: huddle, pick: hud.tapPick, cycle: hud.tapCall, explain: hud.showMeaning, ready: hud.tapReady)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MatchView.space)) } action: { host.huddleFrame = $0 }
+                    .position(x: layout.leading + 190, y: HUDLayout.topBand + (layout.size.height - HUDLayout.topBand) / 2)
+                    .transition(.opacity)
+            }
             if let winner {
-                MatchOverCard(winner: winner, score: score, again: {
+                MatchOverCard(winner: winner, score: hud.score, again: {
                     self.winner = nil
                     host.playAgain()
                 }, menu: leave)
-                .frame(maxHeight: .infinity)
+                .frame(width: layout.size.width, height: layout.size.height)
             }
         }
+        .coordinateSpace(.named(MatchView.space))
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { host.viewSize = $0 }
         .background(Color.black)
+        .animation(.easeOut(duration: 0.2), value: hud.huddle == nil)
         .onAppear {
-            host.onScore = { score = $0 }
             host.onMatchOver = { winner = $0 }
         }
         .onDisappear { host.stop() }
@@ -72,19 +81,11 @@ struct MatchView: View {
         }
     }
 
+    static let space = "match"
+
     private func leave() {
         host.stop()
         exit()
-    }
-}
-
-/// The score readout until the HUD (Task 4).
-struct ScoreLine: Equatable {
-    var home = 0
-    var away = 0
-
-    func text(autoplay: Bool) -> String {
-        autoplay ? "DEMO · AUTOPLAY    HOME \(home) – \(away) AWAY" : "HOME \(home) – \(away) AWAY"
     }
 }
 
@@ -105,16 +106,16 @@ private struct MatchOverCard: View {
             HStack(spacing: 12) {
                 Button(action: again) {
                     Text("PLAY AGAIN")
-                        .font(.system(size: 16, weight: .black))
+                        .font(.system(size: 18, weight: .black))
                         .foregroundStyle(.black)
-                        .padding(.horizontal, 20).padding(.vertical, 10)
-                        .background(Color(red: 1, green: 0.85, blue: 0.3), in: Capsule())
+                        .padding(.horizontal, 22).frame(minHeight: 50)
+                        .background(HUDStyle.gold, in: Capsule())
                 }
                 Button(action: menu) {
                     Text("MENU")
-                        .font(.system(size: 16, weight: .black))
+                        .font(.system(size: 18, weight: .black))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .padding(.horizontal, 22).frame(minHeight: 50)
                         .background(.white.opacity(0.15), in: Capsule())
                 }
             }
@@ -124,59 +125,111 @@ private struct MatchOverCard: View {
     }
 }
 
-/// Owns a match's scene, loop and presentation: each frame it runs the client loop's states
-/// through the slow-motion clock, draws them, moves the camera, and plays the haptics and sound.
+/// Owns a match: its client loop, scene, camera, ownership, touches, HUD, haptics and sound.
+/// Each frame it runs the client loop's states through the slow-motion clock, draws them, moves
+/// the camera, and derives the HUD.
+///
+/// Plan 6 hands it a networked `ClientLoop` through `makeClient`; nothing else here changes.
 @MainActor
 final class MatchHost {
+    /// Makes the client loop for a match: its settings and the humans in it.
+    typealias ClientFactory = @MainActor (MatchSettings, [HumanSlot]) -> any ClientLoop
+
+    /// The solo human (spec §4.6): one person, on home.
+    static let soloHuman = HumanID(raw: 1)
+
     let mode: MatchMode
-    let ownership: SideOwnership
+    /// The local human: `soloHuman` in a solo match, nobody in autoplay.
+    let human: HumanID?
+    let ownership: HumanOwnership
     let director: CameraDirector
+    let hud: HUDModel
+    /// Fingers on the court to SpikeCore actions; nil when nobody plays.
+    let translator: TouchTranslator?
     let presentation = Presentation()
     private(set) var scene: CourtScene?
     private(set) var loop: GameLoop?
-    var onScore: ((ScoreLine) -> Void)?
+    private(set) var controller: ControllerInput?
+    private(set) var demo: DemoFinger?
     var onMatchOver: ((TeamSide) -> Void)?
 
+    /// The view's size and the HUD's frames, from SwiftUI: the strip and the huddle never take
+    /// timing taps.
+    var viewSize: CGSize = .zero { didSet { relayout() } }
+    var stripFrame: CGRect? { didSet { excludeRects() } }
+    var huddleFrame: CGRect? { didSet { excludeRects() } }
+
+    private let makeClient: ClientFactory
     private weak var arView: ARView?
     private var haptics: Haptics?
     private let sounds = Sounds()
     private var settings: MatchSettings
-    private var shown = ScoreLine()
     private var overSince: Double?
     private var reportedOver = false
+    private var lastFrame: Double?
 
-    init(mode: MatchMode) {
+    init(mode: MatchMode, makeClient: @escaping ClientFactory = MatchHost.localClient) {
         self.mode = mode
-        ownership = SideOwnership(localSide: mode.localSide)
+        self.makeClient = makeClient
+        settings = mode.settings
+        human = mode.localSide == nil ? nil : Self.soloHuman
+        ownership = HumanOwnership(human: human, side: mode.localSide)
         director = CameraDirector(ownership: ownership)
-        switch mode {
-        case .solo(let s): settings = s
-        case .autoplay: settings = MatchSettings()
+        hud = HUDModel(human: human, ownership: ownership)
+        if let human {
+            translator = TouchTranslator(human: human, ownership: ownership) { _, _ in }
+        } else {
+            translator = nil
         }
+        translator?.send = { [weak self] action, time in self?.send(action, at: time) }
+        hud.send = { [weak self] action in self?.send(action, at: CACurrentMediaTime()) }
     }
 
-    static func client(_ settings: MatchSettings) -> LocalClientLoop {
-        LocalClientLoop(state: GameState(settings: settings))
+    /// The solo client: SpikeCore stepped right here.
+    static func localClient(_ settings: MatchSettings, _ humans: [HumanSlot]) -> any ClientLoop {
+        LocalClientLoop(state: GameState(settings: settings, humans: humans))
     }
 
-    func attach(to arView: ARView) {
+    /// The humans a match starts with: the solo human on home, following the ball.
+    var humans: [HumanSlot] {
+        guard let human, let side = mode.localSide else { return [] }
+        return [HumanSlot(id: human, team: side, pick: .ball)]
+    }
+
+    /// An action from the local human, at touch time `time`.
+    func send(_ action: InputAction, at time: Double) {
+        guard let human, let client = loop?.client else { return }
+        client.send(PlayerInput(human: human, tick: 0, action: action), at: time)
+    }
+
+    func attach(to arView: CourtARView) {
         guard scene == nil else { return }
         self.arView = arView
         let scene = CourtScene(arView: arView)
-        let client = Self.client(settings)
+        let client = makeClient(settings, humans)
         let loop = GameLoop(client: client)
         loop.onFrame = { [weak self] client, events in self?.frame(client, events) }
+        loop.touches = translator
+        arView.onTouch = { [weak loop] phase, p, t, key in loop?.touch(phase, p, t: t, key: key) }
         self.scene = scene
         self.loop = loop
         director.reset(to: client.current)
         scene.apply(director.current)
-        if mode.localSide != nil { haptics = Haptics() }
+        if let translator {
+            haptics = Haptics()
+            let controller = ControllerInput(translator: translator, strip: { [weak self] in self?.hud.strip ?? [] },
+                                             switchTo: { [weak self] in self?.hud.tapStrip($0) })
+            controller.start()
+            self.controller = controller
+            if case .assist = mode { demo = DemoFinger(translator: translator, ownership: ownership) }
+        }
         sounds.start()
         loop.start()
     }
 
     func stop() {
         loop?.stop()
+        controller?.stop()
         sounds.stop()
     }
 
@@ -189,28 +242,66 @@ final class MatchHost {
     private func replace() {
         overSince = nil
         reportedOver = false
-        let client = Self.client(settings)
+        let client = makeClient(settings, humans)
         presentation.reset()
+        ownership.reset()
         director.reset(to: client.current)
         loop?.replace(client: client)
+        if let translator, case .assist = mode { demo = DemoFinger(translator: translator, ownership: ownership) }
+    }
+
+    private func relayout() {
+        guard viewSize.width > 0 else { return }
+        let insets = arView?.safeAreaInsets ?? .zero
+        let layout = HUDLayout(size: viewSize, insets: EdgeInsets(top: insets.top, leading: insets.left,
+                                                                    bottom: insets.bottom, trailing: insets.right))
+        if hud.layout != layout { hud.layout = layout }
+        director.aimBands = layout.aimBands
+        excludeRects()
+    }
+
+    private func excludeRects() {
+        let layout = hud.layout
+        translator?.excludedRects = [stripFrame, huddleFrame, layout.menuRect].compactMap { $0 }.map { $0.insetBy(dx: -4, dy: -4) }
     }
 
     private func frame(_ client: any ClientLoop, _ events: [GameEvent]) {
         guard let scene else { return }
-        let f = presentation.frame(prev: client.previous, cur: client.current, alpha: client.alpha, events: events)
-        scene.update(prev: f.prev, cur: f.cur, alpha: f.alpha)
-        if let v = arView, v.bounds.height > 0 { director.aspect = Float(v.bounds.width / v.bounds.height) }
-        scene.apply(director.frame(for: f.cur, events: f.events.map(\.event), dt: f.dt))
-        haptics?.play(Haptics.pulses(for: f.events, ownership: ownership, in: f.cur))
-        sounds.play(Sounds.cues(for: f.events))
+        let live = client.current
+        ownership.observe(events, in: live)
+        translator?.update(live)
 
-        // The score changes when the point is drawn, not before.
-        let s = f.cur
-        let line = ScoreLine(home: s.score.points(.home), away: s.score.points(.away))
-        if line != shown {
-            shown = line
-            onScore?(line)
+        let f = presentation.frame(prev: client.previous, cur: live, alpha: client.alpha, events: events)
+        scene.update(prev: f.prev, cur: f.cur, alpha: f.alpha)
+        if let v = arView, v.bounds.height > 0 {
+            director.aspect = Float(v.bounds.width / v.bounds.height)
+            if v.bounds.size != viewSize { viewSize = v.bounds.size }
         }
+        let shot = director.frame(for: f.cur, events: f.events.map(\.event), dt: f.dt)
+        scene.apply(shot)
+        let view = ScreenProjector(shot: shot, size: viewSize)
+        translator?.projector = view
+
+        // The live match time: the clock touches are stamped and judged on.
+        let now = live.time + client.alpha * Tuning.dt
+        let clock = CACurrentMediaTime()
+        let wallDt = min(max(clock - (lastFrame ?? clock), 0), 0.1)
+        lastFrame = clock
+        controller?.frame(dt: wallDt, view: view, ownership: ownership, state: live)
+        demo?.frame(live, time: now, clock: clock, view: view)
+
+        var frame = HUDModel.Frame(live: live, events: events, time: now, view: view, aim: translator?.aim)
+        frame.drawnPrev = f.prev
+        frame.drawn = f.cur
+        frame.alpha = f.alpha
+        frame.shownEvents = f.events.map(\.event)
+        hud.update(frame)
+        translator?.labelTargets = hud.setLabels.map { ($0.id, CGRect(x: $0.at.x - 50, y: $0.at.y - 26, width: 100, height: 52)) }
+
+        haptics?.play(Haptics.pulses(for: f.events, ownership: ownership, in: f.cur))
+        sounds.play(Sounds.cues(for: f.events, ownership: ownership))
+
+        let s = f.cur
         guard s.phase == .matchOver else {
             overSince = nil
             return
@@ -221,7 +312,7 @@ final class MatchHost {
                 reportedOver = true
                 onMatchOver?(w)
             }
-        case .autoplay:
+        case .autoplay, .assist:
             // Three seconds after match point, the next match.
             let since = overSince ?? s.time
             overSince = since
@@ -233,15 +324,34 @@ final class MatchHost {
     }
 }
 
-/// The `ARView` in non-AR mode, as the spike proved.
+/// The court's `ARView` (non-AR, as the spike proved), passing its touches on with their own
+/// timestamps.
+final class CourtARView: ARView {
+    var onTouch: ((TouchPhase, CGPoint, Double, Int) -> Void)?
+
+    enum TouchPhase { case began, moved, ended, cancelled }
+
+    private func forward(_ touches: Set<UITouch>, _ phase: TouchPhase) {
+        for t in touches {
+            onTouch?(phase, t.location(in: self), t.timestamp, ObjectIdentifier(t).hashValue)
+        }
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, .began) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, .moved) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, .ended) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { forward(touches, .cancelled) }
+}
+
 struct MatchARView: UIViewRepresentable {
     let host: MatchHost
 
-    func makeUIView(context: Context) -> ARView {
-        let view = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+    func makeUIView(context: Context) -> CourtARView {
+        let view = CourtARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        view.isMultipleTouchEnabled = true
         host.attach(to: view)
         return view
     }
 
-    func updateUIView(_ view: ARView, context: Context) {}
+    func updateUIView(_ view: CourtARView, context: Context) {}
 }

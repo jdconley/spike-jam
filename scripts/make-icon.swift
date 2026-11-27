@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Draws the placeholder app icon: a volleyball over the words SPIKE JAM, 1024×1024, opaque.
 //
-//   scripts/make-icon.swift    writes SpikeJam/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+//   scripts/make-icon.swift    writes App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 //
 // A stand-in until the real art exists. The App Store wants one opaque 1024 px PNG; Xcode derives
 // the other sizes from it.
@@ -11,7 +11,7 @@ import CoreGraphics
 let size = 1024
 let out = URL(fileURLWithPath: #filePath)
   .deletingLastPathComponent().deletingLastPathComponent()
-  .appendingPathComponent("SpikeJam/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+  .appendingPathComponent("App/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
 
 let space = CGColorSpace(name: CGColorSpace.sRGB)!
 guard let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
