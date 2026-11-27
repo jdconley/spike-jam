@@ -49,6 +49,7 @@ func busyState(seed: UInt64 = 7) -> GameState {
             .timeHint(adjustPPM: Int16.max),
             .ack(seq: 41),
             .bye,
+            .paused(tick: 4321),
         ]
         messages += actions.map { .reliable(seq: 5, $0) }
         for m in messages {

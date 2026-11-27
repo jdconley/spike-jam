@@ -30,6 +30,9 @@ public enum Message: Codable, Equatable, Sendable {
     case ack(seq: UInt32)
     /// Either way: leaving.
     case bye
+    /// Host → guest, a few copies at once: the host stopped at `tick` (its app left the screen,
+    /// and iOS doesn't let a host run in the background). A snapshot after `tick` means it's back.
+    case paused(tick: Int)
 }
 
 /// The wire format (plan 6): a format byte, then the message in `BinaryEncoder`'s encoding.

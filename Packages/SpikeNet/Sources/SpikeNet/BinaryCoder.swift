@@ -66,6 +66,8 @@ enum StringTable {
         all += ["press", "release", "tap", "setTo", "read", "pick", "call", "combo", "switchTo", "ready", "teamSettings"]
         all += ["hello", "welcome", "inputs", "snapshot", "timeHint", "reliable", "ack", "bye"]
         all += ["point", "sideOut", "matchWon", "fire"]
+        // Added since; new names go last, so the ones before keep their numbers.
+        all += ["paused"]
         var seen = Set<String>()
         return all.filter { seen.insert($0).inserted }
     }()

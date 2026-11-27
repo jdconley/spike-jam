@@ -61,6 +61,8 @@ struct StartScreen: View {
     let play: (MatchSettings) -> Void
     /// Opens an all-bot match to watch.
     let watch: () -> Void
+    /// Opens "Play together (same Wi-Fi)".
+    var together: () -> Void = {}
 
     @AppStorage("start.gameType") private var gameType: GameType = .mens
     @AppStorage("start.tempo") private var tempo: Tempo = .faster
@@ -118,6 +120,19 @@ struct StartScreen: View {
             }
             .accessibilityIdentifier("playSolo")
             .padding(.top, 6)
+            Button(action: together) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("PLAY TOGETHER")
+                        .font(.system(size: 17, weight: .black).italic())
+                    Text("SAME WI-FI")
+                        .font(.system(size: 10, weight: .heavy)).tracking(1.5)
+                        .opacity(0.7)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 24).padding(.vertical, 9)
+                .background(.white.opacity(0.16), in: Capsule())
+            }
+            .accessibilityIdentifier("playTogether")
             Button(action: watch) {
                 Text("WATCH A BOT MATCH")
                     .font(.system(size: 12, weight: .heavy))
@@ -172,9 +187,9 @@ struct StartScreen: View {
 }
 
 /// A label and a row of pills, one of them picked.
-private let optionLabelWidth: CGFloat = 70
+let optionLabelWidth: CGFloat = 70
 
-private struct OptionRow<Option: Hashable>: View {
+struct OptionRow<Option: Hashable>: View {
 
     let label: String
     let options: [Option]
@@ -207,7 +222,7 @@ private struct OptionRow<Option: Hashable>: View {
 }
 
 /// A dark arena with a faint court drawn at an angle behind the menu.
-private struct StartBackground: View {
+struct StartBackground: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color(red: 0.16, green: 0.07, blue: 0.24), Color(red: 0.03, green: 0.05, blue: 0.13)],

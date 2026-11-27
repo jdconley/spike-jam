@@ -28,10 +28,14 @@ public final class ServerLoop {
     public static let snapshotEvery = 2
     public static let ringSize = 60
     public static let dropAfter: Double = 1.0
+    /// A gap between `tick`s this long is the host stalling, not its guests going quiet.
+    static let stallGap: Double = 0.25
     /// The slack the time hints aim for: how many steps before it's needed a guest's newest input
     /// arrives, measured when the host takes the packet. 1.5 keeps the whole steps of input
     /// waiting beyond the host's tick (`buffer(of:)`) at 1–2.
     public static let targetSlack: Double = 1.5
+    /// A change in a guest's slack this big at once is its clock jumping, not drift.
+    static let slackJump: Double = 4
     /// The biggest speed change a hint asks for. A real clock drifts by tens of parts per million,
     /// but a guest's display link can run a percent or two off, so this is ±2.5%.
     public static let maxHintPPM = 25_000
@@ -61,6 +65,9 @@ public final class ServerLoop {
         var reliableSeq: UInt32 = 0
         var heldReliable: [UInt32: InputAction] = [:]
         var packetTick = -1
+        /// The newest packet's ack (the guest's newest snapshot), which orders its packets: a
+        /// guest whose clock jumped back sends lower ticks, but never a lower ack.
+        var packetAck = Int.min
         var slack: Double?
         var integral: Double = 0
         var hintPPM = 0
@@ -168,7 +175,15 @@ public final class ServerLoop {
     }
 
     /// Takes what arrived, steps the match up to `now` (seconds on any steady clock), and sends.
+    /// Does nothing while paused.
     public func tick(now: Double) {
+        guard !isPaused else { return }
+        // The host itself stalled (its main thread was busy): that's nobody's silence. Its own
+        // client, which stalled with it, hasn't had a chance to send yet.
+        if startTime != nil, now - self.now > Self.stallGap {
+            let gap = now - self.now
+            for k in peers.keys { peers[k]!.lastHeard += gap }
+        }
         self.now = now
         if startTime == nil {
             startTime = now - Double(state.tick) * Tuning.dt
@@ -193,6 +208,36 @@ public final class ServerLoop {
             sendHints()
         }
         for (p, peer) in peers where !peer.welcomed && now - peer.lastWelcome >= 0.25 { welcome(p) }
+    }
+
+    // MARK: - Pausing
+
+    /// Stopped by `pause`: `tick` does nothing until `resume`.
+    public private(set) var isPaused = false
+    /// Copies of `paused` sent at once. The host is about to stop running, so it can't resend
+    /// until acked; a guest that hears none of them sees the snapshots stop instead.
+    public static let pausedCopies = 3
+
+    /// Stops the match where it is (the hosting phone's app left the screen: iOS doesn't let a
+    /// host run in the background) and tells every guest, which stops predicting.
+    public func pause() {
+        guard !isPaused else { return }
+        isPaused = true
+        guard startTime != nil else { return }
+        for p in peers.keys {
+            for _ in 0..<Self.pausedCopies { send(.paused(tick: state.tick), to: p) }
+        }
+    }
+
+    /// Starts again from the tick it stopped at, `now`: the paused time is never stepped, and no
+    /// guest counts as silent for it. The next snapshot tells the guests.
+    public func resume(now: Double) {
+        guard isPaused else { return }
+        isPaused = false
+        self.now = now
+        guard startTime != nil else { return }
+        startTime = now - Double(state.tick) * Tuning.dt
+        for k in peers.keys { peers[k]!.lastHeard = now }
     }
 
     /// How many whole steps of `human`'s input the host holds beyond its current tick: 1–2 when
@@ -226,14 +271,23 @@ public final class ServerLoop {
                 } else {
                     welcome(from)
                 }
-            case .inputs(let tick, _, let first, let items):
+            case .inputs(let tick, let ack, let first, let items):
                 guard var p = peers[from] else { continue }
                 p.lastHeard = now
                 p.welcomed = true
-                if tick > p.packetTick {
+                // The newest packet: by its ack, then its tick (a clock that jumped back sends
+                // lower ticks after a newer snapshot).
+                if ack > p.packetAck || (ack == p.packetAck && tick > p.packetTick) {
+                    p.packetAck = ack
                     p.packetTick = tick
                     let slack = Double(tick) - clockTick(now)
-                    p.slack = p.slack.map { $0 + 0.1 * (slack - $0) } ?? slack
+                    if let old = p.slack, abs(slack - old) < Self.slackJump {
+                        p.slack = old + 0.1 * (slack - old)
+                    } else {
+                        // The guest's clock jumped (or this is the first): start measuring again.
+                        p.slack = slack
+                        p.integral = 0
+                    }
                 }
                 for (i, item) in items.enumerated() {
                     let seq = first &+ UInt32(i)
@@ -257,7 +311,7 @@ public final class ServerLoop {
                 send(.ack(seq: p.reliableSeq), to: from)
             case .bye:
                 if let p = peers[from] { drop(from, p.human) }
-            case .welcome, .snapshot, .timeHint, .ack:
+            case .welcome, .snapshot, .timeHint, .ack, .paused:
                 break
             }
         }

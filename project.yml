@@ -56,6 +56,9 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         UIStatusBarHidden: true
         GCSupportsControllerUserInteraction: true
+        # Play together (same Wi-Fi): Bonjour finds and advertises matches (plan 6).
+        NSLocalNetworkUsageDescription: Spike Jam finds and joins games on your Wi-Fi.
+        NSBonjourServices: [_spikejam._udp]
   SpikeJamTests:
     type: bundle.unit-test
     platform: iOS

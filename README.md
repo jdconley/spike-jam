@@ -9,6 +9,7 @@ Made by Conley Chaos LLC. Open source under the MIT license.
 - `App/` is the iPhone app (the `SpikeJam` target): the game loop, court scene, camera, touch input, HUD and huddle. `AppTests/` tests it.
 - `Packages/SpikeCore` is the shared game core: rules, rotation, AI, input and the fixed-step simulation. It builds for Apple platforms and Linux.
 - `Packages/SpikeArt` is the placeholder cel-shaded look (RealityKit).
+- `Packages/SpikeNet` is the network protocol, the host's server loop and the guests' prediction. It builds for Apple platforms and Linux. `App/Net/` puts it on the local Wi-Fi (Bonjour and UDP) for "Play together".
 
 ## Building
 
@@ -26,6 +27,16 @@ scripts/device.sh --demo assist    # launch arguments: -demo autoplay | solo | a
 
 `-demo autoplay` plays bots against bots, `-demo solo` skips the start screen into a solo match, and
 `-demo assist` is a solo match whose touches a robot finger plays through the real touch path.
+
+Two phones on two simulators (see `LaunchOptions` in `App/SpikeJamApp.swift`):
+
+```sh
+xcrun simctl launch <host>  com.conleychaos.spikejam -together host -auto -robot -port 47123
+xcrun simctl launch <guest> com.conleychaos.spikejam -together join -auto -robot -port 47123
+```
+
+`-port` makes the guest connect over 127.0.0.1 after finding the host with Bonjour: the Mac's firewall
+turns away UDP from one simulator app to another at the Mac's network address. Real phones don't need it.
 
 ## TestFlight
 
