@@ -110,6 +110,8 @@ private func expectFollows(_ h: HumanID, picked a: AthleteID, _ s: GameState, _ 
         var lastID: ContactID?
         for _ in 0..<(60 * 60 * 30) where s.phase != .matchOver {
             let events = step(&s, inputs: perfectInputs(h1, s) + perfectInputs(h2, s))
+            // While their block is up, the arrow is over their blocker.
+            if let w = s.notes.block, s.pending?.team == .away { #expect(controlled(by: w.owner, s) == w.athlete) }
             for e in events {
                 if case .point = e { rallies += 1 }
                 // A serve's window comes again as it's tossed: one touch.

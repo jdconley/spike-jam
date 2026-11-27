@@ -33,16 +33,19 @@ extension GameState {
 /// (spec §4.1). The pick follows the person: a picked middle the libero has
 /// replaced is played as the libero, and a picked libero who is off (their
 /// middle serving) as that middle, so it is always someone on court. With
-/// "ball", it is whoever on their side `h` plays the next touch with, and nil
-/// while their side has no touch coming.
+/// "ball", it is whoever on their side `h` plays the next touch with (their
+/// blocker while the other side's set is up), and nil while they have no
+/// touch coming.
 public func controlled(by h: HumanID, _ s: GameState) -> AthleteID? {
     guard let slot = s.human(h) else { return nil }
     switch slot.current {
     case .athlete(let a):
         return onCourt(as: a, s)
     case .ball:
-        guard let c = s.pending, c.kind != nil, c.team == slot.team, c.owner == h else { return nil }
-        return c.athlete
+        if let c = s.pending, c.kind != nil, c.team == slot.team, c.owner == h { return c.athlete }
+        // Their block against the other side's set.
+        if let w = s.notes.block, w.owner == h { return w.athlete }
+        return nil
     }
 }
 
