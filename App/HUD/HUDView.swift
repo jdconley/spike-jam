@@ -83,8 +83,8 @@ private struct ScoreChip: View {
     private func side(_ name: String, _ points: Int, serving: Bool) -> some View {
         HStack(spacing: 4) {
             Circle().fill(.white).frame(width: 6, height: 6).opacity(serving ? 1 : 0)
-            Text(name).font(HUDStyle.font(10)).foregroundStyle(.white.opacity(0.75))
-            Text("\(points)").font(HUDStyle.font(18)).monospacedDigit()
+            Text(name).font(HUDStyle.font(10)).foregroundStyle(.white.opacity(0.75)).fixedSize()
+            Text("\(points)").font(HUDStyle.font(18)).monospacedDigit().fixedSize()
         }
     }
 }

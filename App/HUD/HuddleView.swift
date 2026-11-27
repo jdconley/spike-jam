@@ -17,6 +17,7 @@ struct HuddleView: View {
             HStack(spacing: 8) {
                 bigButton("BALL", lit: huddle.ballPicked, id: "huddle-ball") { pick(.ball) }
                 Countdown(fraction: huddle.fraction)
+                    .frame(maxWidth: .infinity)
                 bigButton(huddle.ready ? "READY" : "GO!", lit: huddle.ready, gold: !huddle.ready, id: "huddle-ready", action: ready)
             }
             VStack(spacing: 0) {
@@ -37,8 +38,12 @@ struct HuddleView: View {
                 .frame(height: 16)
         }
         .padding(10)
+        .frame(width: Self.width)
         .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 18))
     }
+
+    /// Three 104-point columns, their gaps and the padding.
+    static let width: CGFloat = 3 * 104 + 2 * 6 + 2 * 8 + 2 * 10
 
     @ViewBuilder private func cell(_ z: Zone) -> some View {
         if let spot = huddle.spots.first(where: { $0.zone == z }) {

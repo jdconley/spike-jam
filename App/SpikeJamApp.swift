@@ -9,7 +9,6 @@ struct SpikeJamApp: App {
     var body: some SwiftUI.Scene {
         WindowGroup {
             RootView(launch: options)
-                .ignoresSafeArea()
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
         }

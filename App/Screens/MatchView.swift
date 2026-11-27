@@ -43,20 +43,44 @@ struct MatchView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
+            content
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .onChange(of: geo.size, initial: true) { _, size in host.viewSize = size }
+        }
+        .ignoresSafeArea()
+        .background(Color.black)
+        .animation(.easeOut(duration: 0.2), value: host.hud.huddle == nil)
+        .onAppear {
+            host.onMatchOver = { winner = $0 }
+        }
+        .onDisappear { host.stop() }
+        // A solo match pauses in the background and picks up without a burst of steps.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { host.loop?.resume() } else { host.loop?.pause() }
+        }
+    }
+
+    /// The court with everything over it, in the full screen's coordinates (the HUD keeps to the
+    /// safe area itself, through `HUDLayout`).
+    private var content: some View {
         let hud = host.hud
         let layout = hud.layout
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             MatchARView(host: host)
             HUDView(model: hud, layout: layout, autoplay: host.mode == .autoplay, menu: leave)
             if !hud.strip.isEmpty {
                 SwitchStrip(chips: hud.strip, tap: hud.tapStrip)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MatchView.space)) } action: { host.stripFrame = $0 }
+                    .onDisappear { host.stripFrame = nil }
                     .position(x: layout.stripRect.midX, y: layout.stripRect.midY)
             }
             if let huddle = hud.huddle, !huddle.ready {
                 HuddleView(huddle: huddle, pick: hud.tapPick, cycle: hud.tapCall, explain: hud.showMeaning, ready: hud.tapReady)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MatchView.space)) } action: { host.huddleFrame = $0 }
-                    .position(x: layout.leading + 190, y: HUDLayout.topBand + (layout.size.height - HUDLayout.topBand) / 2)
+                    .onDisappear { host.huddleFrame = nil }
+                    .position(x: layout.leading + HuddleView.width / 2,
+                              y: HUDLayout.topBand + (layout.size.height - HUDLayout.topBand) / 2)
                     .transition(.opacity)
             }
             if let winner {
@@ -68,20 +92,9 @@ struct MatchView: View {
             }
         }
         .coordinateSpace(.named(MatchView.space))
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { host.viewSize = $0 }
-        .background(Color.black)
-        .animation(.easeOut(duration: 0.2), value: hud.huddle == nil)
-        .onAppear {
-            host.onMatchOver = { winner = $0 }
-        }
-        .onDisappear { host.stop() }
-        // A solo match pauses in the background and picks up without a burst of steps.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { host.loop?.resume() } else { host.loop?.pause() }
-        }
     }
 
-    static let space = "match"
+    nonisolated static let space = "match"
 
     private func leave() {
         host.stop()
@@ -252,7 +265,8 @@ final class MatchHost {
 
     private func relayout() {
         guard viewSize.width > 0 else { return }
-        let insets = arView?.safeAreaInsets ?? .zero
+        // The window's: the court view itself runs under the Dynamic Island and the home indicator.
+        let insets = arView?.window?.safeAreaInsets ?? arView?.safeAreaInsets ?? .zero
         let layout = HUDLayout(size: viewSize, insets: EdgeInsets(top: insets.top, leading: insets.left,
                                                                     bottom: insets.bottom, trailing: insets.right))
         if hud.layout != layout { hud.layout = layout }
@@ -262,7 +276,11 @@ final class MatchHost {
 
     private func excludeRects() {
         let layout = hud.layout
-        translator?.excludedRects = [stripFrame, huddleFrame, layout.menuRect].compactMap { $0 }.map { $0.insetBy(dx: -4, dy: -4) }
+        // Only what's on screen: a huddle that closed takes no taps.
+        let strip = hud.strip.isEmpty ? nil : stripFrame
+        let huddle = hud.huddle.map { $0.ready } == false ? huddleFrame : nil
+        let rects = [strip, huddle, layout.menuRect].compactMap { $0 }.map { $0.insetBy(dx: -4, dy: -4) }
+        if translator?.excludedRects != rects { translator?.excludedRects = rects }
     }
 
     private func frame(_ client: any ClientLoop, _ events: [GameEvent]) {
@@ -275,7 +293,7 @@ final class MatchHost {
         scene.update(prev: f.prev, cur: f.cur, alpha: f.alpha)
         if let v = arView, v.bounds.height > 0 {
             director.aspect = Float(v.bounds.width / v.bounds.height)
-            if v.bounds.size != viewSize { viewSize = v.bounds.size }
+            if v.bounds.size != viewSize || hud.layout.insets == EdgeInsets() && v.window != nil { viewSize = v.bounds.size }
         }
         let shot = director.frame(for: f.cur, events: f.events.map(\.event), dt: f.dt)
         scene.apply(shot)
@@ -296,6 +314,7 @@ final class MatchHost {
         frame.alpha = f.alpha
         frame.shownEvents = f.events.map(\.event)
         hud.update(frame)
+        excludeRects()
         translator?.labelTargets = hud.setLabels.map { ($0.id, CGRect(x: $0.at.x - 50, y: $0.at.y - 26, width: 100, height: 52)) }
 
         haptics?.play(Haptics.pulses(for: f.events, ownership: ownership, in: f.cur))

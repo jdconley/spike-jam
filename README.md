@@ -6,8 +6,9 @@ Made by Conley Chaos LLC. Open source under the MIT license.
 
 - Design: [docs/superpowers/specs/2026-11-26-spike-jam-design.md](docs/superpowers/specs/2026-11-26-spike-jam-design.md)
 - Plans: [docs/superpowers/plans/](docs/superpowers/plans/)
-- `SpikeJam/` is the throwaway feel spike from the first playtests. It will be replaced.
-- `Packages/SpikeCore` (coming) is the shared game core: rules, rotation, AI and the fixed-step simulation. It builds for Apple platforms and Linux.
+- `App/` is the iPhone app (the `SpikeJam` target): the game loop, court scene, camera, touch input, HUD and huddle. `AppTests/` tests it.
+- `Packages/SpikeCore` is the shared game core: rules, rotation, AI, input and the fixed-step simulation. It builds for Apple platforms and Linux.
+- `Packages/SpikeArt` is the placeholder cel-shaded look (RealityKit).
 
 ## Building
 
@@ -17,6 +18,14 @@ scripts/bootstrap.sh    # generates SpikeJam.xcodeproj from project.yml (install
 
 The app is `com.conleychaos.spikejam`, team `B222J9J7B8`, automatic signing. `scripts/make-icon.swift`
 redraws the placeholder app icon.
+
+```sh
+scripts/device.sh                  # build, install and launch on the paired iPhone (unlocked)
+scripts/device.sh --demo assist    # launch arguments: -demo autoplay | solo | assist
+```
+
+`-demo autoplay` plays bots against bots, `-demo solo` skips the start screen into a solo match, and
+`-demo assist` is a solo match whose touches a robot finger plays through the real touch path.
 
 ## TestFlight
 
@@ -47,7 +56,7 @@ gh secret set ASC_KEY_P8 < ~/.appstoreconnect/private_keys/AuthKey_<key ID>.p8
 
 ### Sending a build to testers
 
-A push to `main` that changes the app (`SpikeJam`, `Packages` or `project.yml`) uploads a build and
+A push to `main` that changes the app (`App`, `Packages` or `project.yml`) uploads a build and
 sends it to **Family and Friends** (the external group) as well as the internal testers. A push that
 changes only scripts, docs or CI uploads for the internal testers only. Later builds of an approved
 version usually clear beta app review in minutes. To pick another group or resend a build, run the

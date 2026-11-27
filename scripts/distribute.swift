@@ -83,7 +83,7 @@ func changes(since: String) -> [String] {
 /// The commits after `commit` that change the app itself (not its scripts, docs or art): a date
 /// can't say which commits a build holds when two merges land minutes apart.
 func changes(from commit: String) -> [String] {
-  let app = ["SpikeJam", "Packages", "project.yml"].map { ":(top)\($0)" }
+  let app = ["App", "Packages", "project.yml"].map { ":(top)\($0)" }
   return subjects(["\(commit)..HEAD", "--"] + app)
 }
 

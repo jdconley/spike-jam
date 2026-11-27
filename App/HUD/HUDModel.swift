@@ -234,7 +234,9 @@ final class HUDModel {
             case .block:
                 prompt = Prompt.block
             }
-            if w.kind != .serve || w.tossed, let center = ringCenter(w, s, f.view) {
+            // While aiming, the ring sits on the aim: that's where your eyes are.
+            let aimed = f.aim.flatMap { $0.contact == w.id ? ($0.floor.flatMap { f.view?.point($0, height: 0) } ?? $0.point) : nil }
+            if w.kind != .serve || w.tossed, let center = aimed ?? ringCenter(w, s, f.view) {
                 ring = Self.ring(for: w, at: center, time: f.time)
             }
             if w.kind == .receive || w.kind == .dig, let b = s.ball, let view = f.view {

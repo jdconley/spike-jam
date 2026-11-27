@@ -16,7 +16,7 @@ struct HUDLayout: Equatable {
     /// The top band's height: the menu button, the prompt and the score.
     static let topBand: CGFloat = 44
     static let menuSize: CGFloat = 40
-    static let scoreWidth: CGFloat = 132
+    static let scoreWidth: CGFloat = 176
 
     var leading: CGFloat { max(insets.leading, Self.edge + 4) }
     var trailing: CGFloat { max(insets.trailing, Self.edge + 4) }
