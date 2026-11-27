@@ -12,7 +12,7 @@ import UIKit
 /// 60 Hz simulation draws smoothly at the display's rate.
 @MainActor
 final class CourtScene {
-    /// The camera shots. Only the wide sideline view exists so far; Task 5 adds the moving camera.
+    /// Fixed camera shots. The moving camera is `CameraDirector`'s, applied with `apply(_:)`.
     enum Shot {
         /// The whole court from high on the near sideline, home on the left.
         case wideSideline
@@ -69,9 +69,15 @@ final class CourtScene {
     func setShot(_ shot: Shot) {
         switch shot {
         case .wideSideline:
-            camera.camera.fieldOfViewInDegrees = 36
-            camera.look(at: [0, 0.2, 0.9], from: [0, 11.5, 15], relativeTo: nil)
+            apply(CameraDirector.wideSideline)
         }
+    }
+
+    /// Puts the camera where `CameraDirector` says.
+    func apply(_ shot: CameraShot) {
+        camera.camera.fieldOfViewOrientation = .vertical
+        camera.camera.fieldOfViewInDegrees = shot.fov
+        camera.look(at: shot.target, from: shot.position, relativeTo: nil)
     }
 
     /// Draws the match `alpha` of the way from `prev` to `cur`.
