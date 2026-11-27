@@ -216,3 +216,42 @@ Everything in plans 1–5, plus:
 - [ ] **Step 5: Open the PR.** JD merges it once CI passes. The pipeline uploads the build and sends it to the TestFlight "Family and Friends" group, which is the prototype for JD and his son.
 
 - [ ] **Step 6: Commit** with `git commit -m "feat(app): host pause handling and two-phone playtest checklist"`.
+
+---
+
+## As built: corrections (Tasks 1–4)
+
+The code in `Packages/SpikeNet` is the reference; these are the places it differs from the text above.
+
+**Messages and the wire (Task 1)**
+- `welcome(human:settings:startTick:)` carries no rosters. Both rosters encode to about 1.3 KB, past the 1,200-byte packet, and they follow from the settings: both ends make them with `GameState(settings:)`.
+- `inputs(tick:ack:first:items:)`: `tick` is the guest's current tick (the host measures its input buffer from it), and the items are numbered from `first`. Each input goes again in every packet until a snapshot confirms it, rather than for a fixed 8 ticks, so a burst of loss costs nothing however long the round trip. Items are `NetInput`: a `PlayerInput` plus, for a touch, `seen`, the contact's tick on the guest's phone (see Task 3).
+- `Snapshot` has `confirmedThrough: [Confirmation]` (per human: the newest input and reliable numbers taken, and the newest packet tick), not `[HumanID: Int]`. It adds `pending`, the inputs the host has but hasn't played yet, and `confirmed`, the score and the latest celebrations confirmed for good.
+- `DynamicState` keeps the settings, which are a few dozen bytes: a team's system can change in the first huddle (`teamSettings`), which rebuilds the rosters. `apply` makes the rosters again when the settings change them.
+- The binary coder writes `Int` and `UInt` as varints (zig-zag) rather than 8 fixed bytes: SpikeCore uses `Int` for ticks, indices and every enum raw value. Strings that are SpikeCore enum names or case names are one byte (`StringTable`). Arrays have varint counts. The hot small types (vectors, motion, the ball's flight, IDs) skip Codable's containers (`WireValue`): a snapshot encodes in about 25 µs and decodes in about 40 µs. The busiest snapshot of 50 matches is 828 bytes.
+
+**Transport and rig (Task 2)**
+- `SimNetwork` has `endpoint()` as well as `connect()`, since one host transport talks to several peers; link conditions are per direction (`setLink(_:from:to:)`, `setLink(_:between:and:)`). Jitter is uniform in 0…`jitter` on top of the delay.
+
+**Host loop (Task 3)**
+- The time hint is capped at ±25,000 PPM (2.5%), not ±1,000. The test's 2% fast clock needs 20,000; a real clock drifts by tens of PPM, but a display-driven loop can be a percent off. It's a PI controller on the measured slack, and the guest jumps its own clock when the slack is far off (at the start, or after a stall).
+- The hints aim for 1.5 steps of continuous slack, measured when the host takes a packet; that keeps the whole steps waiting beyond the host's tick (`buffer(of:)`) at 1–2 (all 1,200 samples in `bufferConverges`).
+- Touches are judged against the contact as the toucher saw it (spec §5.3), through `Placement`, which host and guests share: if the host's contact comes later or sooner than the guest's phone predicted, the input moves with it, up to the 150 ms cap; a touch for a contact not open yet on the host (a block jump for a set the host hasn't seen leave) waits for it, as long as the cap. Without this, 2.3% of the guest's touches were overruled; with it, 1.1%.
+- Celebrations (points, side-outs, match won, fire) and the score in snapshots are confirmed once they're older than the rewind cap, so a late touch's rewind can never take one back.
+- There's no `start`: the clock starts at the first `tick(now:)`. `admit` before that sets up the match's humans; after it, they join the match in progress. `rejoin` returns the human on the same team with their pick reset to "ball" until the next huddle. Added: `onHello` (an unknown peer said hello, for the host session to admit), `onDrop`, `onStep`, `stats`, `state(at:)`, `connected`, `confirmedPoints`.
+
+**Predicting client (Task 4)**
+- `ClientLoop` stays in `App/`: it's `@MainActor` and app-internal. `PredictingClientLoop` has the same members (and isn't tied to an actor, so it runs on the Linux server too); `App/Loop/PredictingClientLoop+ClientLoop.swift` is the one-line conformance.
+- A snapshot that matches the prediction for its tick (state and waiting inputs) is taken without a replay.
+- Another human's pass, dig, set or attack the guest hasn't heard of yet is predicted as on time with the AI's choices, instead of a miss when the grace window closes.
+- `confirmedEvents` is every confirmed celebration of the match; `advance` returns them as they're confirmed, with the predicted events that aren't celebrations. Predicted celebrations never come out (`onPredictedCelebration` sees them, for tests). The drawn `previous` and `current` carry the confirmed score.
+- `Smoother` eases out over 150 ms but closes at most 10 m/s, so a correction of more than about 0.75 m takes a little longer. The drawn flight carries the offset's rate, so the ball moves smoothly between steps.
+- An own judgment the host overrules shows again with the host's grade.
+
+**Tests**
+- `smoothBounded` measures the drawn ball at 120 Hz, as the app draws it. Frames where a touch since the previous frame started the ball elsewhere don't count: some SpikeCore touches start the new flight away from the old one's end, solo too. The largest jump is 0.45 m.
+- `ownTouchInstant` counts each contact's first judgment, against the contact's tick in the guest's latest prediction, with two steps of leeway for a correction that moved it between frames (waiting for the host would be 8 steps or more). A correction can renumber later contacts, so a contact is the guest's if its newest window was.
+- `noTakeBackCelebrations` forces predicted kills: while the hosting phone's player has a block up against the guest's side, the guest hears nothing from the host until the rally is over. Six matches give a few kills the host turned into stuffs; the guest's confirmed celebrations equal the host's exactly, and it never draws a score the host hadn't confirmed.
+- `lossTolerated` plays 4 matches at 5% loss each way (294 of 294 touches arrived). `snapshotFits` plays its 50 matches with a simulated human on each side, so the snapshots have humans in them.
+- The 20 matches at 100 ms are played once and read by `ownTouchInstant`, `smoothBounded` and `converges`.
+- The tests run optimized (`swift test -c release -Xswiftc -enable-testing`, in CI and `scripts/test-linux.sh`): neither package uses `assert`, so every check still runs, about ten times faster.

@@ -38,10 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - run: xcodebuild -version
-      # SpikeCore, the shared game core, once it exists.
+      # SpikeCore, the shared game core. Optimized with testing enabled: the simulation suites play
+      # hundreds of matches and run about ten times faster, with the same assertions.
       - name: SpikeCore tests (macOS)
         if: hashFiles('Packages/SpikeCore/Package.swift') != ''
-        run: swift test --package-path Packages/SpikeCore
+        run: swift test --package-path Packages/SpikeCore -c release -Xswiftc -enable-testing
       # XcodeGen from its pinned, checksummed release: seconds, where Homebrew takes minutes.
       # scripts/bootstrap.sh finds it on the path.
       - name: Install XcodeGen
@@ -71,10 +72,31 @@ jobs:
           fi
           # scripts/test-linux.sh pins the swift image tag; without it, the newest image.
           if [ -x scripts/test-linux.sh ]; then
-            scripts/test-linux.sh
+            scripts/test-linux.sh SpikeCore
           else
             docker run --rm -v "$PWD/Packages/SpikeCore":/pkg -w /pkg swift:latest swift test
           fi
+
+  # SpikeNet, the protocol, the host loop and the client's prediction: Linux too, since the match
+  # server will run it there. Each runs dozens of networked matches on the simulated network.
+  spikenet-linux:
+    name: SpikeNet tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: SpikeNet tests in Docker
+        run: scripts/test-linux.sh SpikeNet
+
+  spikenet:
+    name: SpikeNet tests (macOS)
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - run: xcodebuild -version
+      - name: SpikeNet tests (macOS)
+        run: swift test --package-path Packages/SpikeNet -c release -Xswiftc -enable-testing
 
   # SpikeArt, the placeholder RealityKit art kit. RealityKit is Apple-only, so macOS only.
   spikeart:
