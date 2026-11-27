@@ -16,6 +16,8 @@ packages:
     path: Packages/SpikeCore
   SpikeArt:
     path: Packages/SpikeArt
+  SpikeNet:
+    path: Packages/SpikeNet
 targets:
   SpikeJam:
     type: application
@@ -56,6 +58,7 @@ targets:
     dependencies:
       - package: SpikeCore
       - package: SpikeArt
+      - package: SpikeNet
     scheme:
       testTargets: [SpikeJamDevTests]
     settings:
